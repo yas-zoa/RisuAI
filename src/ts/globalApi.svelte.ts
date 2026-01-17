@@ -12,8 +12,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { get } from "svelte/store";
-import {open} from '@tauri-apps/plugin-shell'
-import { setDatabase, type Database, defaultSdDataFunc, getDatabase, type character, appVer } from "./storage/database.svelte";
+import { open } from '@tauri-apps/plugin-shell'
+import { setDatabase, type Database, defaultSdDataFunc, getDatabase, type character, appVer, getCurrentCharacter, onDatabaseUpdate } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
@@ -372,7 +372,7 @@ export async function saveDb(){
         const debounceTime = 500; // 500 milliseconds
         let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
-        selectedCharID.subscribe((v) => {
+        const unsubscribeSel = selectedCharID.subscribe((v) => {
             selIdState = v
         })
 
@@ -385,42 +385,58 @@ export async function saveDb(){
             }, debounceTime);
         }
 
-        $effect(() => {
-            DBState.db.botPresetsId
-            DBState.db.botPresets.length
-            changeTracker.botPreset = true
-            saveTimeoutExecute()
-        })
-        $effect(() => {
-            $state.snapshot(DBState.db.modules)
-            changeTracker.modules = true
-            saveTimeoutExecute()
-        })
-        $effect(() => {
-            for(const key in DBState.db){
-                if(key !== 'characters' && key !== 'botPresets' && key !== 'modules'){
-                    $state.snapshot(DBState.db[key])
-                }
+        function updateChangeTrackerForCharacter(char: { chaId?: string, chatPage?: number, chats?: { id?: string }[] } | null | undefined) {
+            if (!char?.chaId) {
+                return
             }
-            if(DBState?.db?.characters?.[selIdState]){
-                for(const key in DBState.db.characters[selIdState]){
-                    if(key !== 'chats'){
-                        $state.snapshot(DBState.db.characters[selIdState][key])
-                    }
-                }
-                $state.snapshot(DBState.db.characters[selIdState].chats)
-                if(changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId){
-                    changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
-                }
-                if(
-                    changeTracker.chat[0]?.[0] !== DBState.db.characters[selIdState]?.chaId ||
-                    changeTracker.chat[0]?.[1] !== DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id
-                ){
-                    changeTracker.chat.unshift([DBState.db.characters[selIdState]?.chaId, DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id])
-                }
+            if (changeTracker.character[0] !== char.chaId) {
+                changeTracker.character.unshift(char.chaId)
             }
+            const chatId = char.chats?.[char.chatPage ?? 0]?.id
+            if (chatId && (
+                changeTracker.chat[0]?.[0] !== char.chaId ||
+                changeTracker.chat[0]?.[1] !== chatId
+            )) {
+                changeTracker.chat.unshift([char.chaId, chatId])
+            }
+        }
+
+        const unsubscribeDb = onDatabaseUpdate((info) => {
+            // console.log('[DBProxy] Database updated at path:', info.path.join('.'))
+            const rootKey = info.path[0]
+
+            if (rootKey === 'botPresets' || rootKey === 'botPresetsId') {
+                changeTracker.botPreset = true
+                saveTimeoutExecute()
+                return
+            }
+
+            if (rootKey === 'modules') {
+                changeTracker.modules = true
+                saveTimeoutExecute()
+                return
+            }
+
+            if (rootKey === 'characters') {
+                const rawIndex = info.path[1]
+                const index = typeof rawIndex === 'number'
+                    ? rawIndex
+                    : (typeof rawIndex === 'string' && /^\d+$/.test(rawIndex) ? Number(rawIndex) : selIdState)
+                const targetChar = DBState?.db?.characters?.[index ?? selIdState]
+                const fallbackChar = info.oldValue && typeof info.oldValue === 'object' ? info.oldValue as any : null
+                updateChangeTrackerForCharacter(targetChar ?? fallbackChar)
+                saveTimeoutExecute()
+                return
+            }
+
+            updateChangeTrackerForCharacter(DBState?.db?.characters?.[selIdState])
             saveTimeoutExecute()
         })
+
+        return () => {
+            unsubscribeSel()
+            unsubscribeDb()
+        }
     })
 
     let savetrys = 0

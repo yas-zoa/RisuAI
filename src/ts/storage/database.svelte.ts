@@ -16,6 +16,96 @@ import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../p
 export let appVer = "166.3.0"
 export let webAppSubVer = ''
 
+type DatabaseUpdatePathKey = string | number | symbol
+
+export interface DatabaseUpdateInfo {
+    path: DatabaseUpdatePathKey[]
+    value: unknown
+    oldValue: unknown
+    type: 'set' | 'delete'
+}
+
+const databaseUpdateListeners = new Set<(info: DatabaseUpdateInfo) => void>()
+const dbProxyInstances = new WeakSet<object>()
+const dbProxyCache = new WeakMap<object, object>()
+
+function emitDatabaseUpdate(info: DatabaseUpdateInfo) {
+    for (const listener of databaseUpdateListeners) {
+        try {
+            listener(info)
+        } catch (error) {
+            console.error(error)
+        }
+    }
+}
+
+function normalizePathKey(target: object, prop: PropertyKey): DatabaseUpdatePathKey {
+    if (Array.isArray(target) && typeof prop === 'string' && /^\d+$/.test(prop)) {
+        return Number(prop)
+    }
+    return prop
+}
+
+function createDatabaseProxy<T extends object>(target: T, path: DatabaseUpdatePathKey[] = []): T {
+    if (!target || typeof target !== 'object') {
+        return target
+    }
+    if (dbProxyInstances.has(target)) {
+        return target
+    }
+    const cached = dbProxyCache.get(target as object)
+    if (cached) {
+        return cached as T
+    }
+
+    const proxy = new Proxy(target, {
+        get(obj, prop, receiver) {
+            const value = Reflect.get(obj, prop, receiver)
+            if (value && typeof value === 'object') {
+                return createDatabaseProxy(value, [...path, normalizePathKey(obj, prop)])
+            }
+            return value
+        },
+        set(obj, prop, value, receiver) {
+            // console.log('[DBProxy] Setting database property', [...path, normalizePathKey(obj, prop)].join('.'))
+            const oldValue = Reflect.get(obj, prop, receiver)
+            const result = Reflect.set(obj, prop, value, receiver)
+            if (oldValue !== value) {
+                emitDatabaseUpdate({
+                    path: [...path, normalizePathKey(obj, prop)],
+                    value,
+                    oldValue,
+                    type: 'set'
+                })
+            }
+            return result
+        },
+        deleteProperty(obj, prop) {
+            // console.log('[DBProxy] Deleting database property', [...path, normalizePathKey(obj, prop)].join('.'))
+            const oldValue = Reflect.get(obj, prop)
+            const result = Reflect.deleteProperty(obj, prop)
+            emitDatabaseUpdate({
+                path: [...path, normalizePathKey(obj, prop)],
+                value: undefined,
+                oldValue,
+                type: 'delete'
+            })
+            return result
+        }
+    })
+
+    dbProxyCache.set(target as object, proxy)
+    dbProxyInstances.add(proxy as object)
+    return proxy
+}
+
+export function onDatabaseUpdate(listener: (info: DatabaseUpdateInfo) => void) {
+    databaseUpdateListeners.add(listener)
+    return () => {
+        databaseUpdateListeners.delete(listener)
+    }
+}
+
 
 export function setDatabase(data:Database){
     if(checkNullish(data.characters)){
@@ -584,7 +674,7 @@ export function setDatabase(data:Database){
 }
 
 export function setDatabaseLite(data:Database){
-    DBState.db = data
+    DBState.db = createDatabaseProxy(data)
 }
 
 interface getDatabaseOptions{
