@@ -46,10 +46,7 @@ export class AutoStorage{
 
     async removeItems(keys:string[]){
         await this.Init()
-        if (this.realStorage instanceof NodeStorage) {
-            return await (this.realStorage as NodeStorage).removeItems(keys)
-        }
-        throw "removeItems Error: Not NodeStorage"
+        return await (this.realStorage as any).removeItems(keys)
     }
 
     async patchItem(key: string, patchData: {patch: any[], expectedHash: string}): Promise<boolean> {
