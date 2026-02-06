@@ -1510,6 +1510,7 @@ async function pargeChunks(){
     }
     else{
         const indexes = await forageStorage.keys()
+        let toRemove:string[] = []
         for(const asset of indexes){
             if(!asset.startsWith('assets/')){
                 continue
@@ -1518,7 +1519,16 @@ async function pargeChunks(){
             if(unpargeable.has(n)){
             }
             else{
-                await forageStorage.removeItem(asset)
+                toRemove.push(asset)
+            }
+        }
+        if(toRemove.length > 0){
+            try {
+                await forageStorage.removeItems(toRemove)
+            } catch (error) {
+                for(const asset of toRemove){
+                    await forageStorage.removeItem(asset)
+                }
             }
         }
     }

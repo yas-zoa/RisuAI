@@ -44,6 +44,11 @@ export class AutoStorage{
         return await this.realStorage.removeItem(key)
     }
 
+    async removeItems(keys:string[]){
+        await this.Init()
+        return await (this.realStorage as any).removeItems(keys)
+    }
+
     async patchItem(key: string, patchData: {patch: any[], expectedHash: string}): Promise<boolean> {
         await this.Init()
         // Only NodeStorage supports patching for now
