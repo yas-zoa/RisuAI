@@ -397,12 +397,14 @@ app.post('/api/remove-bulk', async (req, res, next) => {
     }
 
     try {
-        for(const filePath of filePaths){
-            if(!isHex(filePath)){
-                continue;
-            }
-            await fs.rm(path.join(savePath, filePath), { force: true });
+        const validFiles = filePaths.filter(filePath => isHex(filePath));
+        const BATCH_SIZE = 100;
+
+        for (let i = 0; i < validFiles.length; i += BATCH_SIZE) {
+            const batch = validFiles.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(f => fs.rm(path.join(savePath, f), { force: true })));
         }
+
         res.send({
             success: true,
         });
