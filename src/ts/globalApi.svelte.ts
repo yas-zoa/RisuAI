@@ -26,6 +26,7 @@ import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from
 import { loadRisuAccountData } from "./drive/accounter";
 import { decodeRisuSave, encodeRisuSaveCompressionStream, encodeRisuSaveLegacy, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { AutoStorage } from "./storage/autoStorage";
+import { NodeStorage } from "./storage/nodeStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { autoServerBackup, saveDbKei } from "./kei/backup";
@@ -1510,6 +1511,7 @@ async function pargeChunks(){
     }
     else{
         const indexes = await forageStorage.keys()
+        let toRemove:string[] = []
         for(const asset of indexes){
             if(!asset.startsWith('assets/')){
                 continue
@@ -1518,6 +1520,16 @@ async function pargeChunks(){
             if(unpargeable.has(n)){
             }
             else{
+                toRemove.push(asset)
+            }
+        }
+        if(forageStorage.realStorage instanceof NodeStorage){
+            if(toRemove.length > 0){
+                await forageStorage.removeItems(toRemove)
+            }
+        }
+        else{
+            for(const asset of toRemove){
                 await forageStorage.removeItem(asset)
             }
         }

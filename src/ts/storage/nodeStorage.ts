@@ -79,6 +79,27 @@ export class NodeStorage{
         }
     }
 
+    async removeItems(keys:string[]){
+        await this.checkAuth()
+        const keysHex = keys.map((key) => Buffer.from(key, 'utf-8').toString('hex'))
+
+        const da = await fetch('/api/remove-bulk', {
+            method: "POST",
+            body: JSON.stringify(keysHex),
+            headers: {
+                'content-type': 'application/json',
+                'risu-auth': auth
+            }
+        })
+        if(da.status < 200 || da.status >= 300){
+            throw "removeItems Error"
+        }
+        const data = await da.json()
+        if(data.error){
+            throw data.error
+        }
+    }
+
     async patchItem(key: string, patchData: {patch: any[], expectedHash: string}): Promise<boolean> {
         await this.checkAuth()
         

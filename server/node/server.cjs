@@ -380,6 +380,37 @@ app.get('/api/remove', async (req, res, next) => {
     }
 });
 
+app.post('/api/remove-bulk', async (req, res, next) => {
+    if(req.headers['risu-auth'].trim() !== password.trim()){
+        console.log('incorrect')
+        res.status(400).send({
+            error:'Password Incorrect'
+        });
+        return
+    }
+    const filePaths = req.body;
+    if (!filePaths || !Array.isArray(filePaths)) {
+        res.status(400).send({
+            error:'File paths array required'
+        });
+        return;
+    }
+
+    try {
+        for(const filePath of filePaths){
+            if(!isHex(filePath)){
+                continue;
+            }
+            await fs.rm(path.join(savePath, filePath), { force: true });
+        }
+        res.send({
+            success: true,
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get('/api/list', async (req, res, next) => {
     if(req.headers['risu-auth'].trim() !== password.trim()){
         console.log('incorrect')
