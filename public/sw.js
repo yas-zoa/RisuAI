@@ -1,5 +1,27 @@
 // @ts-nocheck
 
+const APP_CACHE = 'risuAppShell-v1'
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(
+        caches.open(APP_CACHE)
+            .then((cache) => cache.add('/'))
+            .then(() => self.skipWaiting())
+    )
+})
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys()
+            .then((keys) => Promise.all(
+                keys
+                    .filter((k) => k.startsWith('risuAppShell-') && k !== APP_CACHE)
+                    .map((k) => caches.delete(k))
+            ))
+            .then(() => self.clients.claim())
+    )
+})
+
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url)
     const path = url.pathname.split('/')
@@ -38,6 +60,9 @@ self.addEventListener('fetch', (event) => {
                     break
                 }
                 case 'share':{
+                    // Receives files shared from other apps via the Web Share Target API.
+                    // The manifest.json share_target posts files to this endpoint.
+                    // PNG files are treated as character cards; JSON files as presets or modules.
                     event.respondWith((async () => {
                         const formData = await event.request.formData();
                         /**
@@ -80,7 +105,40 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(new Response("Cannot find resource from cache", {
             status: 404
         }))
+        return
     }}
+
+    // Cache-first for hashed static assets (immutable content)
+    if(url.origin === self.location.origin && url.pathname.startsWith('/assets/')){
+        event.respondWith(
+            caches.match(event.request).then((cached) => {
+                if(cached) return cached
+                return fetch(event.request).then((response) => {
+                    if(response.ok){
+                        caches.open(APP_CACHE)
+                            .then((cache) => cache.put(event.request, response.clone()))
+                    }
+                    return response
+                })
+            })
+        )
+        return
+    }
+
+    // Network-first for navigation requests, fall back to cached app shell
+    if(event.request.mode === 'navigate'){
+        event.respondWith(
+            fetch(event.request)
+                .then((response) => {
+                    if(response.ok){
+                        caches.open(APP_CACHE)
+                            .then((cache) => cache.put(event.request, response.clone()))
+                    }
+                    return response
+                })
+                .catch(() => caches.match('/'))
+        )
+    }
 })
 
 
