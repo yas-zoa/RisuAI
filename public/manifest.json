@@ -35,29 +35,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/ss4.webp",
-      "sizes": "775x872",
-      "type": "image/webp",
-      "form_factor": "narrow",
-      "label": "RisuAI on mobile"
-    },
-    {
-      "src": "/ss2.webp",
-      "sizes": "575x465",
-      "type": "image/webp",
-      "form_factor": "wide",
-      "label": "RisuAI on desktop"
-    },
-    {
-      "src": "/ss3.webp",
-      "sizes": "623x408",
-      "type": "image/webp",
-      "form_factor": "wide",
-      "label": "RisuAI on desktop"
-    }
-  ],
   "share_target": {
     "action": "/sw/share",
     "method": "POST",
