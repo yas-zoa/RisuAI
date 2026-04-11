@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { PromptItem, PromptItemChat } from "src/ts/process/prompt";
     import OptionInput from "./GUI/OptionInput.svelte";
-    import TextAreaInput from "./GUI/TextAreaInput.svelte";
+    import CodeMirrorEditor from "./GUI/CodeMirrorEditor.svelte";
     import SelectInput from "./GUI/SelectInput.svelte";
     import { language } from "src/lang";
     import NumberInput from "./GUI/NumberInput.svelte";
@@ -217,7 +217,7 @@
                 <OptionInput value="globalNote">{language.globalNote}</OptionInput>
             </SelectInput>
             <span>{language.prompt}</span>
-            <TextAreaInput highlight bind:value={promptItem.text} />
+            <CodeMirrorEditor bind:value={promptItem.text} class="my-2 h-[200px]" />
             <span>{language.role}</span>
             <SelectInput bind:value={promptItem.role}>
                 <OptionInput value="user">{language.user}</OptionInput>
@@ -227,7 +227,7 @@
         {/if}
         {#if promptItem.type === 'chatML'}
             <span>{language.prompt}</span>
-            <TextAreaInput highlight bind:value={promptItem.text} />
+            <CodeMirrorEditor bind:value={promptItem.text} class="my-2 h-[200px]" />
         {/if}
         {#if promptItem.type === 'cache'}
             <span>{language.depth}</span>
@@ -279,7 +279,7 @@
                 }} />
             {:else}
                 <span>{language.innerFormat}</span>
-                <TextAreaInput highlight bind:value={promptItem.innerFormat}/>
+                <CodeMirrorEditor bind:value={promptItem.innerFormat} class="my-2 h-[150px]" />
                 <CheckInput name={language.customInnerFormat} check={true} className="mt-2" onChange={() => {
                     if(promptItem.type === 'persona' || promptItem.type === 'description' || promptItem.type === 'authornote' || promptItem.type === 'memory'){
                         promptItem.innerFormat = null

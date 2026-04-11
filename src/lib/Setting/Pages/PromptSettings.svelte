@@ -10,7 +10,7 @@
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import Help from "src/lib/Others/Help.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import CodeMirrorEditor from "src/lib/UI/GUI/CodeMirrorEditor.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import Arcodion from "src/lib/UI/Arcodion.svelte";
@@ -146,15 +146,15 @@
         <OptionInput value="assistant">assistant</OptionInput>
     </SelectInput>
     <span class="text-textcolor mt-4">{language.customPromptTemplateToggle} <Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput bind:value={DBState.db.customPromptTemplateToggle}/>
+    <CodeMirrorEditor bind:value={DBState.db.customPromptTemplateToggle} class="my-2 h-[120px]" />
     <span class="text-textcolor mt-4">{language.defaultVariables} <Help key='defaultVariables' /></span>
-    <TextAreaInput bind:value={DBState.db.templateDefaultVariables}/>
+    <CodeMirrorEditor bind:value={DBState.db.templateDefaultVariables} class="my-2 h-[120px]" />
     <span class="text-textcolor mt-4">{language.predictedOutput}</span>
-    <TextAreaInput bind:value={DBState.db.OAIPrediction}/>
+    <CodeMirrorEditor bind:value={DBState.db.OAIPrediction} class="my-2 h-[120px]" />
     <span class="text-textcolor mt-4">{language.groupInnerFormat} <Help key='groupInnerFormat' /></span>
-    <TextAreaInput placeholder={`<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`} bind:value={DBState.db.groupTemplate}/>
+    <CodeMirrorEditor placeholder={`<{{char}}'s Message>\n{{slot}}\n</{{char}}'s Message>`} bind:value={DBState.db.groupTemplate} class="my-2 h-[120px]" />
     <span class="text-textcolor mt-4">{language.systemContentReplacement} <Help key="systemContentReplacement"/></span>
-    <TextAreaInput bind:value={DBState.db.systemContentReplacement}/>
+    <CodeMirrorEditor bind:value={DBState.db.systemContentReplacement} class="my-2 h-[120px]" />
     <span class="text-textcolor mt-4">{language.systemRoleReplacement} <Help key="systemRoleReplacement"/></span>
     <SelectInput bind:value={DBState.db.systemRoleReplacement}>
         <OptionInput value="user">User</OptionInput>
@@ -162,7 +162,7 @@
     </SelectInput>
     {#if DBState.db.jsonSchemaEnabled}
         <span class="text-textcolor mt-4">{language.jsonSchema} <Help key='jsonSchema' /></span>
-        <TextAreaInput bind:value={DBState.db.jsonSchema}/>
+        <CodeMirrorEditor bind:value={DBState.db.jsonSchema} class="my-2 h-[150px]" />
         <span class="text-textcolor mt-4">{language.extractJson} <Help key='extractJson' /></span>
         <TextInput bind:value={DBState.db.extractJson}/>
     {/if}

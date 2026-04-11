@@ -8,7 +8,7 @@
     import Help from "../../Others/Help.svelte";
     import TextInput from "../../UI/GUI/TextInput.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
+    import CodeMirrorEditor from "../../UI/GUI/CodeMirrorEditor.svelte";
     import { tokenizeAccurate } from "src/ts/tokenizer";
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
@@ -259,7 +259,7 @@
                 <NumberInput size="sm" bind:value={value.insertorder} min={0} max={1000}/>
             {/if}
             <span class="text-textcolor mt-4 mb-2">{language.prompt}</span>
-            <TextAreaInput highlight autocomplete="off" bind:value={value.content} />
+            <CodeMirrorEditor bind:value={value.content} height="default" />
             {#await getTokens(value.content)}
                 <span class="text-textcolor2 mt-2 mb-2 text-sm">{tokens} {language.tokens}</span>
             {:then e}

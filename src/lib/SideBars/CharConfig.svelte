@@ -21,6 +21,7 @@
     import TextInput from "../UI/GUI/TextInput.svelte";
     import NumberInput from "../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
+    import CodeMirrorEditor from "../UI/GUI/CodeMirrorEditor.svelte";
     import Button from "../UI/GUI/Button.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
@@ -251,10 +252,10 @@
     {#if DBState.db.characters[$selectedCharID].type !== 'group' && licensed !== 'private'}
         <TextInput size="xl" marginBottom placeholder="Character Name" bind:value={DBState.db.characters[$selectedCharID].name} />
         <span class="text-textcolor">{language.description} <Help key="charDesc"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
+        <CodeMirrorEditor bind:value={(DBState.db.characters[$selectedCharID] as character).desc} class="my-2" />
         <span class="text-textcolor2 mb-6 text-sm">{tokens.desc} {language.tokens}</span>
         <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].firstMessage} class="my-2" />
         <span class="text-textcolor2 mb-6 text-sm">{tokens.firstMsg} {language.tokens}</span>
 
     {:else if licensed !== 'private' && DBState.db.characters[$selectedCharID].type === 'group'}
@@ -309,13 +310,7 @@
 
     {/if}
     <span class="text-textcolor">{language.authorNote} <Help key="chatNote"/></span>
-    <TextAreaInput
-        margin="both"
-        autocomplete="off"
-        bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note}
-        highlight
-        placeholder={getAuthorNoteDefaultText()}
-    />
+    <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} class="my-2" />
     <span class="text-textcolor2 mb-6 text-sm">{tokens.localNote} {language.tokens}</span>
 
     {#if !$MobileGUI}
@@ -673,7 +668,7 @@
         {/if}
 
         <span class="text-textcolor mt-2">{language.backgroundHTML} <Help key="backgroundHTML" /></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].backgroundHTML} lang="html" class="my-2" />
 
         <span class="text-textcolor mt-4">{language.regexScript} <Help key="regexScript"/></span>
         <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} />
@@ -1054,7 +1049,7 @@
         </div>
 
         <span class="text-textcolor">{language.exampleMessage} <Help key="exampleMessage"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].exampleMessage} class="my-2" />
 
         <span class="text-textcolor">{language.creatorNotes} <Help key="creatorQuotes"/></span>
         <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} className="my-2" onInput={() => {
@@ -1062,13 +1057,13 @@
         }}></MultiLangInput>
 
         <span class="text-textcolor">{language.systemPrompt} <Help key="systemPrompt"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].systemPrompt} class="my-2" />
 
         <span class="text-textcolor">{language.replaceGlobalNote} <Help key="replaceGlobalNote"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote} class="my-2" />
 
         <span class="text-textcolor mt-2">{language.additionalText} <Help key="additionalText" /></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></TextAreaInput>
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].additionalText} class="my-2" />
 
         {#if DBState.db.showUnrecommended || DBState.db.characters[$selectedCharID].personality.length > 3}
             <span class="text-textcolor">{language.personality} <Help key="personality" unrecommended/></span>
@@ -1126,7 +1121,7 @@
                 {#each DBState.db.characters[$selectedCharID].alternateGreetings as bias, i}
                     <tr>
                         <td class="font-medium truncate">
-                            <TextAreaInput highlight bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
+                            <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} class="h-[150px]" />
                         </td>
                         <th class="font-medium cursor-pointer w-8">
                             <div class="flex flex-col items-center">

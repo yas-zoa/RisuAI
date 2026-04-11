@@ -4,6 +4,7 @@
     import Button from "src/lib/UI/GUI/Button.svelte";
     import Check from "src/lib/UI/GUI/CheckInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import CodeMirrorEditor from "src/lib/UI/GUI/CodeMirrorEditor.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import { alertConfirm, alertSelect } from "src/ts/alert";
     import { getCharImage } from "src/ts/characters";
@@ -139,7 +140,7 @@
             <TextInput marginBottom size="lg" bind:value={DBState.db.userNote} placeholder={`Put a unique identifier for this persona here.\nExample: [Alternate Hunters persona]`} />
         {/if}
         <span class="text-sm text-textcolor2">{language.description}</span>
-        <TextAreaInput autocomplete="off" bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]`} />
+        <CodeMirrorEditor bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [{{user}} is a 20 year old girl.]`} />
         <div class="flex gap-2 mt-4 max-w-full flex-wrap">
             <Button onclick={exportUserPersona}>{language.export}</Button>
             <Button onclick={importUserPersona}>{language.import}</Button>
