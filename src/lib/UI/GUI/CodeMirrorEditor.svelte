@@ -21,7 +21,7 @@
         placeholder?: string
         class?: string
         height?: '20' | '24' | '28' | '32' | '36' | '40' | 'full' | 'default'
-        onchange?: (value: string) => void
+        onInput?: (value: string) => void
     }
 
     let {
@@ -30,7 +30,7 @@
         placeholder = '',
         class: className = '',
         height = 'default',
-        onchange
+        onInput
     }: Props = $props()
 
     let editorEl: HTMLDivElement
@@ -844,7 +844,7 @@
         if (update.docChanged) {
             isInternalUpdate = true
             value = update.state.doc.toString()
-            onchange?.(value)
+            onInput?.(value)
             isInternalUpdate = false
         }
     })
@@ -899,6 +899,16 @@
                     changes: { from: 0, to: currentValue.length, insert: newValue }
                 })
             }
+        }
+    })
+
+    // Recreate editor when lang or placeholder changes at runtime
+    $effect(() => {
+        // Access lang and placeholder so Svelte tracks them as dependencies
+        const _lang = lang
+        const _placeholder = placeholder
+        if (view) {
+            createEditor()
         }
     })
 

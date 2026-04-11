@@ -126,7 +126,7 @@
             <span class="text-textcolor mt-6">IN:</span>
             <CodeMirrorEditor bind:value={value.in} lang="regex" class="h-14" />
             <span class="text-textcolor mt-6">OUT:</span>
-            <CodeMirrorEditor bind:value={value.out} height="default" onchange={() => {
+            <CodeMirrorEditor bind:value={value.out} height="default" onInput={() => {
                 $ReloadGUIPointer += 1
             }} />
             {#if value.ableFlag}

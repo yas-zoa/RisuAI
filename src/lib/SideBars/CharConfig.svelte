@@ -310,7 +310,7 @@
 
     {/if}
     <span class="text-textcolor">{language.authorNote} <Help key="chatNote"/></span>
-    <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} class="my-2" />
+    <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} placeholder={getAuthorNoteDefaultText()} class="my-2" />
     <span class="text-textcolor2 mb-6 text-sm">{tokens.localNote} {language.tokens}</span>
 
     {#if !$MobileGUI}
