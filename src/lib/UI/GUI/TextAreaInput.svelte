@@ -67,6 +67,9 @@
                 }
                 onchange()
             }}
+            oncontextmenu={(e) => {
+                openCanvasEditor(e, e.currentTarget)
+            }}
 ></textarea>
 {:else}
     <div
@@ -85,6 +88,9 @@
         onchange={(e) => {
             onchange()
         }}
+        oncontextmenu={(e) => {
+            openCanvasEditor(e, e.currentTarget)
+        }}
         bind:this={inputDom}
         translate="no"
     >{value ?? ''}</div>
@@ -97,7 +103,22 @@
         {/each}
     </div>
 </div>
+<CanvasEditorModal
+    open={canvasOpen}
+    value={value ?? ''}
+    title={canvasTitle}
+    lang={highlight ? 'cbs' : 'markdown'}
+    onClose={() => {
+        canvasOpen = false
+    }}
+    onSave={(nextValue) => {
+        value = nextValue
+        onInput()
+        onchange()
+    }}
+/>
 <script lang="ts">
+    import CanvasEditorModal from './CanvasEditorModal.svelte'
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
     import { isMobile } from 'src/ts/globalApi.svelte';
@@ -145,6 +166,25 @@
     let autoCompleteDom: HTMLDivElement = $state()
     let autocompleteContents:string[] = $state([])
     let inputDom: HTMLDivElement = $state()
+    let canvasOpen = $state(false)
+    let canvasTitle = $state('텍스트 편집')
+
+    const isCanvasTarget = (target: HTMLElement) => {
+        if (target.closest('[data-canvas-modal="true"]')) return false
+        if (target.closest('.mes, .msg, .message, .chat-message, [data-message-id], [data-message_id], #chat-textarea-container, .chat-form')) return false
+        if (target.id === 'chat-textarea' || target.id === 'chat-input' || target.id === 'input-text') return false
+        const rect = target.getBoundingClientRect()
+        if (rect.height < 60) return false
+        return true
+    }
+
+    const openCanvasEditor = (e: MouseEvent, target: HTMLElement) => {
+        if (!isCanvasTarget(target)) return
+        e.preventDefault()
+        e.stopPropagation()
+        canvasTitle = placeholder || target.id || '텍스트 편집'
+        canvasOpen = true
+    }
 
     const autoComplete = () => {
         if(isMobile){
