@@ -6,6 +6,7 @@
     import { EditorState, RangeSetBuilder } from '@codemirror/state'
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
+    import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
         highlightSpecialChars(),
@@ -22,6 +23,7 @@
         class?: string
         height?: '20' | '24' | '28' | '32' | '36' | '40' | 'full' | 'default'
         onInput?: (value: string) => void
+        enableCanvasPopup?: boolean
     }
 
     let {
@@ -30,12 +32,34 @@
         placeholder = '',
         class: className = '',
         height = 'default',
-        onInput
+        onInput,
+        enableCanvasPopup = true
     }: Props = $props()
 
     let editorEl: HTMLDivElement
     let view: EditorView | null = null
     let isInternalUpdate = false
+    let canvasOpen = $state(false)
+    let canvasTitle = $state('텍스트 편집')
+
+    const isCanvasTarget = (target: HTMLElement) => {
+        if (!enableCanvasPopup) return false
+        if (target.closest('[data-canvas-modal="true"]')) return false
+        if (target.closest('.mes, .msg, .message, .chat-message, [data-message-id], [data-message_id], #chat-textarea-container, .chat-form')) return false
+        if (target.id === 'chat-textarea' || target.id === 'chat-input' || target.id === 'input-text') return false
+        const rect = target.getBoundingClientRect()
+        if (rect.height < 60) return false
+        return true
+    }
+
+    const openCanvasEditor = (e: MouseEvent) => {
+        const target = e.currentTarget as HTMLElement | null
+        if (!target || !isCanvasTarget(target)) return
+        e.preventDefault()
+        e.stopPropagation()
+        canvasTitle = placeholder || '텍스트 편집'
+        canvasOpen = true
+    }
 
     // Check if className contains height classes (h- or min-h-)
     const hasCustomHeight = className.includes('h-') || className.includes('min-h-')
@@ -925,6 +949,8 @@
 
 <div
     bind:this={editorEl}
+    oncontextmenu={openCanvasEditor}
+    role="presentation"
     class="w-full border border-selected rounded-md overflow-hidden {className}"
     class:h-20={!hasCustomHeight && (height === '20' || (height === 'default' && $textAreaSize === -5))}
     class:h-24={!hasCustomHeight && (height === '24' || (height === 'default' && $textAreaSize === -4))}
@@ -950,3 +976,16 @@
     class:min-h-72={!hasCustomHeight && height === 'default' && $textAreaSize === 4}
     class:min-h-80={!hasCustomHeight && height === 'default' && $textAreaSize === 5}
 ></div>
+
+<CanvasEditorModal
+    open={canvasOpen}
+    value={value ?? ''}
+    title={canvasTitle}
+    lang={lang}
+    onClose={() => {
+        canvasOpen = false
+    }}
+    onSave={(nextValue) => {
+        value = nextValue
+    }}
+/>

@@ -1,5 +1,5 @@
 <script lang="ts">
-    export interface CanvasMemoItem {
+    interface CanvasMemoItem {
         id: number
         name: string
         content: string
@@ -52,9 +52,14 @@
     <div class="p-2 overflow-y-auto flex-1 space-y-2">
         {#each memos as memo}
             <div class="border border-darkborderc rounded-md">
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <div class="px-2 py-2 flex items-center gap-2 cursor-pointer hover:bg-selected/30" onclick={() => {
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="px-2 py-2 flex items-center gap-2 cursor-pointer hover:bg-selected/30" role="button" tabindex="0" onclick={() => {
                     patchMemo(memo.id, { open: !memo.open })
+                }} onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        patchMemo(memo.id, { open: !memo.open })
+                    }
                 }}>
                     <span class="text-xs text-textcolor2">{memo.open ? '▾' : '▸'}</span>
                     <span class="text-sm flex-1 truncate text-textcolor">{memo.name || (memo.content ? memo.content.split('\n')[0] : '빈 메모')}</span>

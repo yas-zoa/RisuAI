@@ -7,7 +7,14 @@
     import { markdown } from '@codemirror/lang-markdown'
     import { html } from '@codemirror/lang-html'
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
-    import CanvasMemoPanel, { type CanvasMemoItem } from './CanvasMemoPanel.svelte'
+    import CanvasMemoPanel from './CanvasMemoPanel.svelte'
+
+    interface CanvasMemoItem {
+        id: number
+        name: string
+        content: string
+        open: boolean
+    }
 
     interface Props {
         open: boolean
@@ -183,10 +190,9 @@
 
 {#if open}
     <div class="fixed inset-0 z-[1200] flex items-center justify-center" data-canvas-modal="true">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="absolute inset-0 bg-black/70" onclick={onClose}></div>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="relative w-[min(1200px,96vw)] h-[min(88vh,900px)] bg-bgcolor border border-darkborderc rounded-xl shadow-2xl flex flex-col overflow-hidden" onclick={(e) => e.stopPropagation()}>
+        <button class="absolute inset-0 bg-black/70 cursor-default" onclick={onClose} aria-label="닫기 오버레이"></button>
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div class="relative w-[min(1200px,96vw)] h-[min(88vh,900px)] bg-bgcolor border border-darkborderc rounded-xl shadow-2xl flex flex-col overflow-hidden" role="dialog" aria-modal="true" onmousedown={(e) => e.stopPropagation()}>
             <header class="px-4 py-3 border-b border-darkborderc flex items-center gap-2">
                 <h3 class="font-semibold flex-1 truncate">📝 {title}</h3>
                 <button class="p-1 rounded hover:bg-selected" onclick={onClose} aria-label="닫기">
