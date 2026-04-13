@@ -45,6 +45,19 @@
     let memos = $state<CanvasMemoItem[]>([])
     let wasOpen = $state(false)
     let isInternalUpdate = false
+    let toastMsg = $state('')
+    let toastVisible = $state(false)
+    let _toastTimer: ReturnType<typeof setTimeout> | null = null
+
+    const showToast = (msg: string) => {
+        if (_toastTimer !== null) clearTimeout(_toastTimer)
+        toastMsg = msg
+        toastVisible = true
+        _toastTimer = setTimeout(() => {
+            toastVisible = false
+            _toastTimer = null
+        }, 2000)
+    }
 
     const loadMemos = (): CanvasMemoItem[] => {
         const fallback: CanvasMemoItem[] = [{ id: generateCanvasMemoId(), name: '', content: '', open: true }]
@@ -91,6 +104,11 @@
             drawSelection(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             EditorView.lineWrapping,
+            // Fill the fixed-height flex container and let CM handle its own scroll.
+            EditorView.theme({
+                '&': { height: '100%' },
+                '.cm-scroller': { overflow: 'auto' },
+            }),
             keymap.of([...defaultKeymap, ...historyKeymap]),
             EditorView.updateListener.of((update) => {
                 if (!update.docChanged) return
@@ -146,6 +164,15 @@
 
     const removeBoldMarkers = () => {
         draft = draft.replace(/\*\*(.+?)\*\*/gs, '$1')
+    }
+
+    const copyAll = async () => {
+        try {
+            await navigator.clipboard.writeText(draft)
+            showToast('전체 텍스트가 복사되었습니다')
+        } catch {
+            showToast('클립보드 접근 권한이 필요합니다')
+        }
     }
 
     const insertMemo = (text: string) => {
@@ -209,6 +236,7 @@
 
     onDestroy(() => {
         destroyView()
+        if (_toastTimer !== null) clearTimeout(_toastTimer)
     })
 </script>
 
@@ -225,6 +253,7 @@
             </header>
 
             <div class="px-4 py-2 border-b border-darkborderc bg-darkbg flex items-center gap-2">
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={copyAll}>전체 복사</button>
                 <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={removeBoldMarkers}>MD 정리</button>
                 <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" class:bg-selected={memoOpen} onclick={() => {
                     memoOpen = !memoOpen
@@ -232,8 +261,8 @@
             </div>
 
             <div class="flex-1 min-h-0 flex">
-                <div class="flex-1 min-h-0 p-4">
-                    <div bind:this={editorHost} class="w-full h-full border border-selected rounded-md overflow-hidden"></div>
+                <div class="flex-1 min-h-0 p-4 flex flex-col">
+                    <div bind:this={editorHost} class="flex-1 min-h-0 border border-selected rounded-md overflow-hidden"></div>
                 </div>
                 {#if memoOpen}
                     <CanvasMemoPanel memos={memos} onChange={saveMemos} onInsert={insertMemo} />
@@ -248,5 +277,11 @@
                 </div>
             </footer>
         </div>
+    </div>
+{/if}
+
+{#if toastVisible}
+    <div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[10002] bg-selected border border-darkborderc text-textcolor px-5 py-2.5 rounded-lg text-sm shadow-lg pointer-events-none">
+        {toastMsg}
     </div>
 {/if}
