@@ -120,6 +120,7 @@
 <script lang="ts">
     import CanvasEditorModal from './CanvasEditorModal.svelte'
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
+    import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
     import { isMobile } from 'src/ts/globalApi.svelte';
     import { isFirefox, sleep } from 'src/ts/util';
@@ -169,17 +170,8 @@
     let canvasOpen = $state(false)
     let canvasTitle = $state('텍스트 편집')
 
-    const isCanvasTarget = (target: HTMLElement) => {
-        if (target.closest('[data-canvas-modal="true"]')) return false
-        if (target.closest('.mes, .msg, .message, .chat-message, [data-message-id], [data-message_id], #chat-textarea-container, .chat-form')) return false
-        if (target.id === 'chat-textarea' || target.id === 'chat-input' || target.id === 'input-text') return false
-        const rect = target.getBoundingClientRect()
-        if (rect.height < 60) return false
-        return true
-    }
-
     const openCanvasEditor = (e: MouseEvent, target: HTMLElement) => {
-        if (!isCanvasTarget(target)) return
+        if (!shouldOpenCanvasPopupTarget(target, 60)) return
         e.preventDefault()
         e.stopPropagation()
         canvasTitle = placeholder || target.id || '텍스트 편집'

@@ -6,6 +6,7 @@
     import { EditorState, RangeSetBuilder } from '@codemirror/state'
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
+    import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
     import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
@@ -42,19 +43,9 @@
     let canvasOpen = $state(false)
     let canvasTitle = $state('텍스트 편집')
 
-    const isCanvasTarget = (target: HTMLElement) => {
-        if (!enableCanvasPopup) return false
-        if (target.closest('[data-canvas-modal="true"]')) return false
-        if (target.closest('.mes, .msg, .message, .chat-message, [data-message-id], [data-message_id], #chat-textarea-container, .chat-form')) return false
-        if (target.id === 'chat-textarea' || target.id === 'chat-input' || target.id === 'input-text') return false
-        const rect = target.getBoundingClientRect()
-        if (rect.height < 60) return false
-        return true
-    }
-
     const openCanvasEditor = (e: MouseEvent) => {
         const target = e.currentTarget as HTMLElement | null
-        if (!target || !isCanvasTarget(target)) return
+        if (!target || !enableCanvasPopup || !shouldOpenCanvasPopupTarget(target, 60)) return
         e.preventDefault()
         e.stopPropagation()
         canvasTitle = placeholder || '텍스트 편집'
@@ -987,5 +978,6 @@
     }}
     onSave={(nextValue) => {
         value = nextValue
+        onInput?.(nextValue)
     }}
 />

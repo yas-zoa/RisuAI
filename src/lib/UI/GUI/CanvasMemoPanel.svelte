@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
+
     interface CanvasMemoItem {
         id: number
         name: string
@@ -26,7 +28,7 @@
         update([
             ...memos,
             {
-                id: Date.now(),
+                id: generateCanvasMemoId(),
                 name: '',
                 content: '',
                 open: true
@@ -35,12 +37,19 @@
     }
 
     const deleteMemo = (id: number) => {
+        // Keep one memo slot so the memo panel always remains immediately writable.
         if (memos.length <= 1) return
         update(memos.filter((memo) => memo.id !== id))
     }
 
     const patchMemo = (id: number, patch: Partial<CanvasMemoItem>) => {
         update(memos.map((memo) => memo.id === id ? { ...memo, ...patch } : memo))
+    }
+
+    const toggleMemo = (id: number) => {
+        const memo = memos.find((item) => item.id === id)
+        if (!memo) return
+        patchMemo(id, { open: !memo.open })
     }
 </script>
 
@@ -54,11 +63,11 @@
             <div class="border border-darkborderc rounded-md">
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div class="px-2 py-2 flex items-center gap-2 cursor-pointer hover:bg-selected/30" role="button" tabindex="0" onclick={() => {
-                    patchMemo(memo.id, { open: !memo.open })
+                    toggleMemo(memo.id)
                 }} onkeydown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        patchMemo(memo.id, { open: !memo.open })
+                        toggleMemo(memo.id)
                     }
                 }}>
                     <span class="text-xs text-textcolor2">{memo.open ? '▾' : '▸'}</span>
@@ -67,7 +76,7 @@
                         e.stopPropagation()
                         onInsert(memo.content || '')
                     }}>삽입</button>
-                    <button class="text-xs px-2 py-1 rounded border border-red-500/50 text-red-400 hover:bg-red-500/20" onclick={(e) => {
+                    <button class="text-xs px-2 py-1 rounded border border-red-500/50 text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent" disabled={memos.length <= 1} title={memos.length <= 1 ? '마지막 메모는 삭제할 수 없습니다' : '삭제'} onclick={(e) => {
                         e.stopPropagation()
                         deleteMemo(memo.id)
                     }}>삭제</button>
