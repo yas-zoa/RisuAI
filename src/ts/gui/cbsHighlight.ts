@@ -281,4 +281,5 @@ export const cbsTheme = EditorView.theme({
 
     // ── CBS keyword overrides (MUST stay after content rules — cascade order)
     '.cm-cbs-kw-control': { color: '#f38ba8', fontWeight: 'bold' }, // Mocha Red
-    '.cm-cbs-kw-macro':   { color: '#89b4fa' },                     // Mocha Sapphire})
+    '.cm-cbs-kw-macro':   { color: '#89b4fa' }                      // Mocha Sapphire
+    })
