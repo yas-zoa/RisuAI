@@ -183,7 +183,9 @@
                         if (!memo || typeof memo !== 'object') return null
                         const r = memo as RawMemo
                         const maybeId = Number(r.id)
-                        const id = Number.isFinite(maybeId) ? maybeId : generateCanvasMemoId()
+                        const id = Number.isFinite(maybeId)
+                            ? maybeId
+                            : (console.warn('[CanvasEditorModal] Invalid memo ID in storage, regenerating:', r.id), generateCanvasMemoId())
                         const name = typeof r.name === 'string' ? r.name : ''
                         const content = typeof r.content === 'string' ? r.content : ''
                         const open = r.open !== false
@@ -288,6 +290,7 @@
                 // hammer localStorage on every keystroke.
                 if (_highlightSaveTimer !== null) clearTimeout(_highlightSaveTimer)
                 _highlightSaveTimer = setTimeout(() => {
+                    // Clear before saving so onDestroy can detect outstanding work correctly.
                     _highlightSaveTimer = null
                     if (view) saveHighlights(title, getHighlights())
                 }, 500)
@@ -454,13 +457,16 @@
     $effect(() => {
         if (!open) return
         const onKeyDown = (e: KeyboardEvent) => {
-            // If CM search panel is open, let CM handle Escape (close panel only).
+            // If CM search panel is open, close it explicitly and stop propagation
+            // to prevent the modal from closing too. CM's contentDOM listener runs
+            // before this window-level listener, updating view.state synchronously,
+            // so we cannot rely on searchPanelOpen() being true here — we close
+            // the panel ourselves and guard against the CM-fired ESC arriving first.
             if (e.key === 'Escape') {
                 if (view && searchPanelOpen(view.state)) {
-                    // Prevent the event from also triggering other global handlers
-                    // (e.g. parent modal close) while CM closes the search panel.
                     e.preventDefault()
                     e.stopPropagation()
+                    closeSearchPanel(view)
                     return
                 }
                 e.preventDefault()
@@ -472,9 +478,12 @@
                 saveAndClose()
             }
         }
-        window.addEventListener('keydown', onKeyDown)
+        // Use capture phase so this listener runs *before* CM's contentDOM
+        // bubble listener. CM processes ESC synchronously (updating view.state),
+        // so without capture we'd see an already-closed search panel here.
+        window.addEventListener('keydown', onKeyDown, { capture: true })
         return () => {
-            window.removeEventListener('keydown', onKeyDown)
+            window.removeEventListener('keydown', onKeyDown, { capture: true })
         }
     })
 
