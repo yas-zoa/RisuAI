@@ -27,6 +27,14 @@
         to: number
     }
 
+    /** Shape of an unvalidated memo object read from localStorage. */
+    interface RawMemo {
+        id?: unknown
+        name?: unknown
+        content?: unknown
+        open?: unknown
+    }
+
     // ── Props ─────────────────────────────────────────────────────────────────
     interface Props {
         open: boolean
@@ -64,6 +72,8 @@
     let toastMsg = $state('')
     let toastVisible = $state(false)
     let _toastTimer: ReturnType<typeof setTimeout> | null = null
+    /** Debounce timer for persisting highlights to localStorage on each doc change */
+    let _highlightSaveTimer: ReturnType<typeof setTimeout> | null = null
 
     const showToast = (msg: string) => {
         if (_toastTimer !== null) clearTimeout(_toastTimer)
@@ -117,8 +127,7 @@
                     const from = Math.min(e.value.from, e.value.to)
                     const to = Math.max(e.value.from, e.value.to)
                     if (from < to) {
-                        const builder = new RangeSetBuilder<Decoration>()
-                        // Merge the new range into existing ones
+                        // Merge the new range into existing ones, then rebuild sorted.
                         const existing: HighlightRange[] = []
                         deco.between(0, tr.newDoc.length, (f, t) => { existing.push({ from: f, to: t }) })
                         existing.push({ from, to })
@@ -172,11 +181,12 @@
                 const sanitized = parsed
                     .map((memo): CanvasMemoItem | null => {
                         if (!memo || typeof memo !== 'object') return null
-                        const maybeId = Number((memo as { id?: unknown }).id)
+                        const r = memo as RawMemo
+                        const maybeId = Number(r.id)
                         const id = Number.isFinite(maybeId) ? maybeId : generateCanvasMemoId()
-                        const name = typeof (memo as { name?: unknown }).name === 'string' ? (memo as { name: string }).name : ''
-                        const content = typeof (memo as { content?: unknown }).content === 'string' ? (memo as { content: string }).content : ''
-                        const open = (memo as { open?: unknown }).open !== false
+                        const name = typeof r.name === 'string' ? r.name : ''
+                        const content = typeof r.content === 'string' ? r.content : ''
+                        const open = r.open !== false
                         return { id, name, content, open }
                     })
                     .filter((memo): memo is CanvasMemoItem => memo !== null)
@@ -274,8 +284,13 @@
                 isInternalUpdate = true
                 draft = update.state.doc.toString()
                 isInternalUpdate = false
-                // Keep persisted highlights in sync after doc changes
-                if (view) saveHighlights(title, getHighlights())
+                // Debounce highlight persistence so rapid typing doesn't
+                // hammer localStorage on every keystroke.
+                if (_highlightSaveTimer !== null) clearTimeout(_highlightSaveTimer)
+                _highlightSaveTimer = setTimeout(() => {
+                    _highlightSaveTimer = null
+                    if (view) saveHighlights(title, getHighlights())
+                }, 500)
             }),
             cmPlaceholder('내용을 입력하세요...')
         ]
@@ -439,10 +454,13 @@
     $effect(() => {
         if (!open) return
         const onKeyDown = (e: KeyboardEvent) => {
-            // If CM search panel is open, let CM handle Escape
+            // If CM search panel is open, let CM handle Escape (close panel only).
             if (e.key === 'Escape') {
                 if (view && searchPanelOpen(view.state)) {
-                    // CM's searchKeymap will close the panel; don't also close the modal
+                    // Prevent the event from also triggering other global handlers
+                    // (e.g. parent modal close) while CM closes the search panel.
+                    e.preventDefault()
+                    e.stopPropagation()
                     return
                 }
                 e.preventDefault()
@@ -461,6 +479,12 @@
     })
 
     onDestroy(() => {
+        // Flush any pending highlight save before the view is destroyed.
+        if (_highlightSaveTimer !== null) {
+            clearTimeout(_highlightSaveTimer)
+            _highlightSaveTimer = null
+            if (view) saveHighlights(title, getHighlights())
+        }
         destroyView()
         if (_toastTimer !== null) clearTimeout(_toastTimer)
     })

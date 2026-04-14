@@ -174,7 +174,7 @@
         if (!shouldOpenCanvasPopupTarget(target, 60)) return
         e.preventDefault()
         e.stopPropagation()
-        canvasTitle = placeholder || target.id || '텍스트 편집'
+        canvasTitle = placeholder || target.getAttribute('aria-label') || '텍스트 편집'
         canvasOpen = true
     }
 
