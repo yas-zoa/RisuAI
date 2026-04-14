@@ -12,6 +12,7 @@
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
     import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
+    import { cbsHighlighter, cbsTheme } from 'src/ts/gui/cbsHighlight'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -219,6 +220,10 @@
             drawSelection(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             EditorView.lineWrapping,
+            // cbsTheme: Catppuccin Mocha gutter styling + CBS bracket/keyword colours.
+            // Applied before the component-local theme so local overrides win for
+            // search-panel, user-highlight, etc.
+            cbsTheme,
             // Fix: fill fixed-height flex container and let CM scroll internally
             EditorView.theme({
                 '&': { height: '100%' },
@@ -302,6 +307,13 @@
             extensions.push(markdown())
         } else if (lang === 'html') {
             extensions.push(html())
+        }
+
+        // CBS bracket/content/keyword highlighting for all non-plain, non-regex modes.
+        // cbsHighlighter is stateless as a ViewPlugin spec; each EditorView instance
+        // maintains its own plugin state (DecorationSet + incremental cache).
+        if (lang !== 'plain' && lang !== 'regex') {
+            extensions.push(cbsHighlighter)
         }
 
         return extensions

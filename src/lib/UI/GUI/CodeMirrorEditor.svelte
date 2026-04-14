@@ -1,12 +1,13 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte'
-    import { highlightSpecialChars, drawSelection, EditorView, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
+    import { highlightSpecialChars, drawSelection, EditorView, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate, keymap, placeholder as cmPlaceholder, lineNumbers } from '@codemirror/view'
     import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { EditorState, RangeSetBuilder } from '@codemirror/state'
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
     import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
+    import { cbsHighlighter, cbsTheme, cbsColors } from 'src/ts/gui/cbsHighlight'
     import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
@@ -55,52 +56,6 @@
     // Check if className contains height classes (h- or min-h-)
     const hasCustomHeight = className.includes('h-') || className.includes('min-h-')
 
-    // CBS nesting level colors
-    const cbsColors = [
-        '#8be9fd', // level 0 - cyan
-        '#50fa7b', // level 1 - green
-        '#ffb86c', // level 2 - orange
-        '#ff79c6', // level 3 - pink
-        '#bd93f9', // level 4 - purple
-    ]
-
-    // CBS highlighting decoration classes
-    const cbsBracketDecos = cbsColors.map((_, i) =>
-        Decoration.mark({ class: `cm-cbs-bracket-${i}` })
-    )
-    const cbsContentDecos = cbsColors.map((_, i) =>
-        Decoration.mark({ class: `cm-cbs-content-${i}` })
-    )
-
-    // CBS parsing
-    function parseCBS(text: string): { from: number; to: number; type: 'bracket' | 'content'; level: number }[] {
-        const results: { from: number; to: number; type: 'bracket' | 'content'; level: number }[] = []
-        let depth = 0
-        let i = 0
-        const stack: number[] = []
-
-        while (i < text.length) {
-            if (text[i] === '{' && text[i + 1] === '{') {
-                results.push({ from: i, to: i + 2, type: 'bracket', level: depth })
-                stack.push(i + 2)
-                depth++
-                i += 2
-            } else if (text[i] === '}' && text[i + 1] === '}' && depth > 0) {
-                depth--
-                const contentStart = stack.pop()!
-                if (i > contentStart) {
-                    results.push({ from: contentStart, to: i, type: 'content', level: depth })
-                }
-                results.push({ from: i, to: i + 2, type: 'bracket', level: depth })
-                i += 2
-            } else {
-                i++
-            }
-        }
-
-        return results
-    }
-
     // Markdown decoration classes
     const mdHeading1Deco = Decoration.mark({ class: 'cm-md-h1' })
     const mdHeading2Deco = Decoration.mark({ class: 'cm-md-h2' })
@@ -112,7 +67,7 @@
     const mdStrikeDeco = Decoration.mark({ class: 'cm-md-strike' })
     const mdCodeDeco = Decoration.mark({ class: 'cm-md-code' })
 
-    // XML tag nesting level decorations (same colors as CBS)
+    // XML tag nesting level decorations (same colors as CBS — from shared cbsHighlight module)
     const xmlTagDecos = cbsColors.map((_, i) =>
         Decoration.mark({ class: `cm-xml-tag-${i}` })
     )
@@ -605,8 +560,9 @@
         }
     }
 
-    // CBS ViewPlugin
-    const cbsHighlighter = ViewPlugin.fromClass(
+    // Language-specific ViewPlugin (XML tags + CSS-in-style + Markdown).
+    // CBS is handled by the shared cbsHighlighter from cbsHighlight.ts.
+    const langHighlighter = ViewPlugin.fromClass(
         class {
             decorations: DecorationSet
 
@@ -615,7 +571,10 @@
             }
 
             update(update: ViewUpdate) {
-                if (update.docChanged || update.viewportChanged) {
+                // Markdown/XML/CSS structure only changes when the doc changes.
+                // viewportChanged alone does not require rebuilding since we
+                // decorate the full document (no viewport cropping needed here).
+                if (update.docChanged) {
                     this.decorations = this.buildDecorations(update.view)
                 }
             }
@@ -624,20 +583,8 @@
                 const builder = new RangeSetBuilder<Decoration>()
                 const text = view.state.doc.toString()
 
-                // Collect all decorations
                 type DecoItem = { from: number; to: number; deco: Decoration; priority: number }
                 const decos: DecoItem[] = []
-
-                // CBS decorations (highest priority)
-                const cbsParsed = parseCBS(text)
-                for (const item of cbsParsed) {
-                    const level = item.level % cbsColors.length
-                    if (item.type === 'bracket') {
-                        decos.push({ from: item.from, to: item.to, deco: cbsBracketDecos[level], priority: 2 })
-                    } else {
-                        decos.push({ from: item.from, to: item.to, deco: cbsContentDecos[level], priority: 2 })
-                    }
-                }
 
                 // XML tag decorations (with nesting levels)
                 const xmlParsed = parseXmlTags(text)
@@ -653,32 +600,31 @@
                     switch (item.type) {
                         case 'selector': deco = cssSelectorDeco; break
                         case 'property': deco = cssPropertyDeco; break
-                        case 'value': deco = cssValueDeco; break
-                        case 'bracket': deco = cssBracketDeco; break
-                        case 'comment': deco = cssCommentDeco; break
+                        case 'value':    deco = cssValueDeco;    break
+                        case 'bracket':  deco = cssBracketDeco;  break
+                        case 'comment':  deco = cssCommentDeco;  break
                     }
                     decos.push({ from: item.from, to: item.to, deco, priority: 1.7 })
                 }
 
-                // Markdown decorations (lower priority than CBS, XML, and CSS)
+                // Markdown decorations
                 const mdParsed = parseMarkdown(text)
                 for (const item of mdParsed) {
                     let deco: Decoration
                     switch (item.type) {
-                        case 'h1': deco = mdHeading1Deco; break
-                        case 'h2': deco = mdHeading2Deco; break
-                        case 'h3': deco = mdHeading3Deco; break
-                        case 'heading': deco = mdHeadingDeco; break
-                        case 'bold': deco = mdBoldDeco; break
-                        case 'italic': deco = mdItalicDeco; break
+                        case 'h1':         deco = mdHeading1Deco;   break
+                        case 'h2':         deco = mdHeading2Deco;   break
+                        case 'h3':         deco = mdHeading3Deco;   break
+                        case 'heading':    deco = mdHeadingDeco;    break
+                        case 'bold':       deco = mdBoldDeco;       break
+                        case 'italic':     deco = mdItalicDeco;     break
                         case 'bolditalic': deco = mdBoldItalicDeco; break
-                        case 'strike': deco = mdStrikeDeco; break
-                        case 'code': deco = mdCodeDeco; break
+                        case 'strike':     deco = mdStrikeDeco;     break
+                        case 'code':       deco = mdCodeDeco;       break
                     }
                     decos.push({ from: item.from, to: item.to, deco, priority: 1 })
                 }
 
-                // Sort by position (required by RangeSetBuilder)
                 decos.sort((a, b) => a.from - b.from || b.priority - a.priority)
 
                 for (const item of decos) {
@@ -769,9 +715,9 @@
         '.cm-selectionBackground, ::selection': {
             backgroundColor: 'rgba(255, 255, 255, 0.2) !important',
         },
-        '.cm-gutters': {
-            display: 'none',
-        },
+        // Gutter styling is provided by cbsTheme (Catppuccin Mocha) when lineNumbers()
+        // is active.  No display:none here so the gutter renders when lineNumbers() is
+        // added for cbs mode.
         '.cm-activeLine': {
             backgroundColor: 'transparent',
         },
@@ -812,17 +758,8 @@
         '.cm-completionIcon': {
             opacity: 0.7,
         },
-        // CBS styles
-        '.cm-cbs-bracket-0': { color: '#8be9fd', fontWeight: 'bold' },
-        '.cm-cbs-bracket-1': { color: '#50fa7b', fontWeight: 'bold' },
-        '.cm-cbs-bracket-2': { color: '#ffb86c', fontWeight: 'bold' },
-        '.cm-cbs-bracket-3': { color: '#ff79c6', fontWeight: 'bold' },
-        '.cm-cbs-bracket-4': { color: '#bd93f9', fontWeight: 'bold' },
-        '.cm-cbs-content-0': { color: '#8be9fd' },
-        '.cm-cbs-content-1': { color: '#50fa7b' },
-        '.cm-cbs-content-2': { color: '#ffb86c' },
-        '.cm-cbs-content-3': { color: '#ff79c6' },
-        '.cm-cbs-content-4': { color: '#bd93f9' },
+        // Note: CBS bracket/content/keyword styles are provided by cbsTheme
+        // (imported from cbsHighlight.ts) and applied as a separate extension.
         // Markdown styles (regex-based)
         '.cm-md-h1': { color: '#ffd700', fontWeight: 'bold', fontSize: '1.4em' },
         '.cm-md-h2': { color: '#ffd700', fontWeight: 'bold', fontSize: '1.2em' },
@@ -883,14 +820,23 @@
         if (lang === 'regex') {
             extensions.push(regexHighlighter)
         } else if (lang !== 'plain') {
-            // CBS highlighting for markdown, html, cbs modes
+            // CBS + language-specific highlighting for markdown, html, cbs modes.
+            // cbsTheme supplies Catppuccin Mocha gutter styles and CBS colour rules.
+            // cbsHighlighter handles {{ }} nesting + keyword highlighting (incremental).
+            // langHighlighter handles XML tags, CSS-in-style, and Markdown.
+            // lineNumbers() is added only for cbs mode (macro editing context).
             extensions.push(
+                cbsTheme,
+                cbsHighlighter,
                 autocompletion({
                     override: [cbsCompletionSource],
                     activateOnTyping: true,
                 }),
-                cbsHighlighter
+                langHighlighter,
             )
+            if (lang === 'cbs') {
+                extensions.push(lineNumbers())
+            }
         }
 
         view = new EditorView({
