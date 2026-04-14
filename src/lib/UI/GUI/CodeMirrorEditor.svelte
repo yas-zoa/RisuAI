@@ -560,9 +560,9 @@
         }
     }
 
-    // Language-specific ViewPlugin (XML tags + CSS-in-style + Markdown).
-    // CBS is handled by the shared cbsHighlighter from cbsHighlight.ts.
-    const langHighlighter = ViewPlugin.fromClass(
+    // markupHighlighter: XML tag nesting, CSS-in-<style>, and Markdown decorations.
+    // CBS {{ }} highlighting is handled separately by the shared cbsHighlighter.
+    const markupHighlighter = ViewPlugin.fromClass(
         class {
             decorations: DecorationSet
 
@@ -823,7 +823,7 @@
             // CBS + language-specific highlighting for markdown, html, cbs modes.
             // cbsTheme supplies Catppuccin Mocha gutter styles and CBS colour rules.
             // cbsHighlighter handles {{ }} nesting + keyword highlighting (incremental).
-            // langHighlighter handles XML tags, CSS-in-style, and Markdown.
+            // markupHighlighter handles XML tags, CSS-in-style, and Markdown.
             // lineNumbers() is added only for cbs mode (macro editing context).
             extensions.push(
                 cbsTheme,
@@ -832,7 +832,7 @@
                     override: [cbsCompletionSource],
                     activateOnTyping: true,
                 }),
-                langHighlighter,
+                markupHighlighter,
             )
             if (lang === 'cbs') {
                 extensions.push(lineNumbers())

@@ -65,6 +65,8 @@ export function parseCBS(text: string): CbsToken[] {
     const results: CbsToken[] = []
     let depth = 0
     let i = 0
+    // Stores the position immediately after '{{' for each open brace pair,
+    // so we can emit the correct content range when the matching '}}' is found.
     const stack: number[] = []
 
     while (i < text.length) {
@@ -279,5 +281,4 @@ export const cbsTheme = EditorView.theme({
 
     // ── CBS keyword overrides (MUST stay after content rules — cascade order)
     '.cm-cbs-kw-control': { color: '#f38ba8', fontWeight: 'bold' }, // Mocha Red
-    '.cm-cbs-kw-macro':   { color: '#89b4fa' },                     // Mocha Sapphire
-})
+    '.cm-cbs-kw-macro':   { color: '#89b4fa' },                     // Mocha Sapphire})
