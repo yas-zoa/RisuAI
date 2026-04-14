@@ -281,5 +281,277 @@ export const cbsTheme = EditorView.theme({
 
     // ── CBS keyword overrides (MUST stay after content rules — cascade order)
     '.cm-cbs-kw-control': { color: '#f38ba8', fontWeight: 'bold' }, // Mocha Red
-    '.cm-cbs-kw-macro':   { color: '#89b4fa' }                      // Mocha Sapphire
-    })
+    '.cm-cbs-kw-macro':   { color: '#89b4fa' },                     // Mocha Sapphire
+
+    // ── Markdown (regex-based) ────────────────────────────────────────────
+    '.cm-md-h1':          { color: '#ffd700', fontWeight: 'bold', fontSize: '1.4em' },
+    '.cm-md-h2':          { color: '#ffd700', fontWeight: 'bold', fontSize: '1.2em' },
+    '.cm-md-h3':          { color: '#ffd700', fontWeight: 'bold', fontSize: '1.1em' },
+    '.cm-md-heading':     { color: '#ffd700', fontWeight: 'bold' },
+    '.cm-md-bold':        { color: '#ffb86c', fontWeight: 'bold' },
+    '.cm-md-italic':      { color: '#f1fa8c', fontStyle: 'italic' },
+    '.cm-md-bold-italic': { color: '#ffb86c', fontWeight: 'bold', fontStyle: 'italic' },
+    '.cm-md-strike':      { color: '#6272a4', textDecoration: 'line-through' },
+    '.cm-md-code':        { color: '#50fa7b', backgroundColor: 'rgba(80, 250, 123, 0.1)' },
+
+    // ── XML tag styles (nesting level colours, same palette as CBS) ───────
+    '.cm-xml-tag-0': { color: '#8be9fd' },
+    '.cm-xml-tag-1': { color: '#50fa7b' },
+    '.cm-xml-tag-2': { color: '#ffb86c' },
+    '.cm-xml-tag-3': { color: '#ff79c6' },
+    '.cm-xml-tag-4': { color: '#bd93f9' },
+
+    // ── CSS styles (inside <style> tags) ──────────────────────────────────
+    '.cm-css-selector': { color: '#50fa7b' },
+    '.cm-css-property': { color: '#8be9fd' },
+    '.cm-css-value':    { color: '#f1fa8c' },
+    '.cm-css-bracket':  { color: '#ff79c6', fontWeight: 'bold' },
+    '.cm-css-comment':  { color: '#6272a4', fontStyle: 'italic' },
+})
+
+// ── Markup (XML / CSS-in-style / Markdown) highlighter ────────────────────
+//
+// Shared ViewPlugin that applies regex-based decorations for:
+//   - XML tag nesting (same Catppuccin level colours as CBS)
+//   - CSS inside <style> blocks
+//   - Markdown headings, emphasis, code
+//
+// CBS {{ }} highlighting is handled by the separate cbsHighlighter; the two
+// plugins coexist without conflict because they target different text ranges
+// and maintain independent DecorationSets.
+//
+// Rebuild strategy: only on docChanged (not viewportChanged) because the full
+// document is decorated on every build — no viewport cropping needed.
+
+// Internal type aliases ─────────────────────────────────────────────────────
+type XmlTagMatch = { from: number; to: number; level: number }
+type CssMatch = {
+    from: number
+    to: number
+    type: 'selector' | 'property' | 'value' | 'bracket' | 'comment'
+}
+type MarkdownMatch = {
+    from: number
+    to: number
+    type: 'h1' | 'h2' | 'h3' | 'heading' | 'bold' | 'italic' | 'bolditalic' | 'strike' | 'code'
+}
+
+// Internal parsers ──────────────────────────────────────────────────────────
+function parseXmlTags(text: string): XmlTagMatch[] {
+    const results: XmlTagMatch[] = []
+    const tagStack: string[] = []
+    const tagRegex = /<(\/?)\s*([a-zA-Z_][\w\-]*)[^>]*?(\/?)>/g
+    let match: RegExpExecArray | null
+
+    while ((match = tagRegex.exec(text)) !== null) {
+        const isClosing   = match[1] === '/'
+        const tagName     = match[2].toLowerCase()
+        const isSelfClose = match[3] === '/'
+
+        if (isSelfClose) {
+            results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
+        } else if (isClosing) {
+            const lastIdx = tagStack.lastIndexOf(tagName)
+            if (lastIdx !== -1) tagStack.splice(lastIdx, 1)
+            results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
+        } else {
+            results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
+            tagStack.push(tagName)
+        }
+    }
+
+    return results
+}
+
+function parseCSS(text: string, offset: number): CssMatch[] {
+    const results: CssMatch[] = []
+    let match: RegExpExecArray | null
+
+    // Comments: /* ... */
+    const commentRegex = /\/\*[\s\S]*?\*\//g
+    while ((match = commentRegex.exec(text)) !== null) {
+        results.push({ from: offset + match.index, to: offset + match.index + match[0].length, type: 'comment' })
+    }
+
+    const textNoComments = text.replace(/\/\*[\s\S]*?\*\//g, m => ' '.repeat(m.length))
+
+    const braceRegex = /[{}]/g
+    while ((match = braceRegex.exec(textNoComments)) !== null) {
+        results.push({ from: offset + match.index, to: offset + match.index + 1, type: 'bracket' })
+    }
+
+    const selectorRegex = /([^{}]+?)(\s*\{)/g
+    while ((match = selectorRegex.exec(textNoComments)) !== null) {
+        const selector = match[1].trim()
+        if (selector.length > 0) {
+            const selectorPos = textNoComments.indexOf(selector, match.index)
+            if (selectorPos !== -1) {
+                results.push({ from: offset + selectorPos, to: offset + selectorPos + selector.length, type: 'selector' })
+            }
+        }
+    }
+
+    const declRegex = /([\w-]+)(\s*:\s*)([^;{}]+)/g
+    while ((match = declRegex.exec(textNoComments)) !== null) {
+        const propName  = match[1]
+        const colonPart = match[2]
+        const propValue = match[3].trimEnd()
+        const propStart = match.index
+        results.push({ from: offset + propStart, to: offset + propStart + propName.length, type: 'property' })
+        const valueStart = propStart + propName.length + colonPart.length
+        results.push({ from: offset + valueStart, to: offset + valueStart + propValue.length, type: 'value' })
+    }
+
+    return results
+}
+
+function findStyleTagContents(text: string): CssMatch[] {
+    const results: CssMatch[] = []
+    const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi
+    let match: RegExpExecArray | null
+
+    while ((match = styleRegex.exec(text)) !== null) {
+        const cssContent = match[1]
+        const cssStart   = match.index + match[0].indexOf(cssContent)
+        results.push(...parseCSS(cssContent, cssStart))
+    }
+
+    return results
+}
+
+function parseMarkdown(text: string): MarkdownMatch[] {
+    const results: MarkdownMatch[] = []
+    let match: RegExpExecArray | null
+
+    // Headings: # at line start (1–6 levels)
+    const headingRegex = /^(#{1,6})\s+.+$/gm
+    while ((match = headingRegex.exec(text)) !== null) {
+        const level = match[1].length
+        const type: MarkdownMatch['type'] =
+            level === 1 ? 'h1' : level === 2 ? 'h2' : level === 3 ? 'h3' : 'heading'
+        results.push({ from: match.index, to: match.index + match[0].length, type })
+    }
+
+    // Bold+Italic: ***text*** (no underscore style, no newlines)
+    const boldItalicRegex = /(\*\*\*)(?!\s)([^\*\n]+?)(?<!\s)\1/g
+    while ((match = boldItalicRegex.exec(text)) !== null) {
+        results.push({ from: match.index, to: match.index + match[0].length, type: 'bolditalic' })
+    }
+
+    // Bold: **text** (not *** or underscore, no newlines)
+    const boldRegex = /(?<!\*)(\*\*)(?!\*)(?!\s)([^\*\n]+?)(?<!\s)(?<!\*)\1(?!\*)/g
+    while ((match = boldRegex.exec(text)) !== null) {
+        results.push({ from: match.index, to: match.index + match[0].length, type: 'bold' })
+    }
+
+    // Italic: *text* (not ** or underscore, no newlines)
+    const italicRegex = /(?<!\*)(\*)(?!\*)(?!\s)([^\*\n]+?)(?<!\s)(?<!\*)\1(?!\*)/g
+    while ((match = italicRegex.exec(text)) !== null) {
+        results.push({ from: match.index, to: match.index + match[0].length, type: 'italic' })
+    }
+
+    // Strikethrough: ~~text~~ (no newlines)
+    const strikeRegex = /~~(?!\s)([^\n]+?)(?<!\s)~~/g
+    while ((match = strikeRegex.exec(text)) !== null) {
+        results.push({ from: match.index, to: match.index + match[0].length, type: 'strike' })
+    }
+
+    // Inline code: `code`
+    const codeRegex = /`([^`\n]+)`/g
+    while ((match = codeRegex.exec(text)) !== null) {
+        results.push({ from: match.index, to: match.index + match[0].length, type: 'code' })
+    }
+
+    return results
+}
+
+// Decoration singletons — created once, shared across all EditorView instances
+const _mdH1Deco         = Decoration.mark({ class: 'cm-md-h1' })
+const _mdH2Deco         = Decoration.mark({ class: 'cm-md-h2' })
+const _mdH3Deco         = Decoration.mark({ class: 'cm-md-h3' })
+const _mdHeadingDeco    = Decoration.mark({ class: 'cm-md-heading' })
+const _mdBoldDeco       = Decoration.mark({ class: 'cm-md-bold' })
+const _mdItalicDeco     = Decoration.mark({ class: 'cm-md-italic' })
+const _mdBoldItalicDeco = Decoration.mark({ class: 'cm-md-bold-italic' })
+const _mdStrikeDeco     = Decoration.mark({ class: 'cm-md-strike' })
+const _mdCodeDeco       = Decoration.mark({ class: 'cm-md-code' })
+
+const _xmlTagDecos      = cbsColors.map((_, i) => Decoration.mark({ class: `cm-xml-tag-${i}` }))
+
+const _cssSelectorDeco  = Decoration.mark({ class: 'cm-css-selector' })
+const _cssPropertyDeco  = Decoration.mark({ class: 'cm-css-property' })
+const _cssValueDeco     = Decoration.mark({ class: 'cm-css-value' })
+const _cssBracketDeco   = Decoration.mark({ class: 'cm-css-bracket' })
+const _cssCommentDeco   = Decoration.mark({ class: 'cm-css-comment' })
+
+/**
+ * markupHighlighter — shared ViewPlugin for XML tag nesting, CSS-in-<style>,
+ * and Markdown (regex-based) decorations.
+ *
+ * Apply alongside cbsHighlighter; they coexist safely because they target
+ * different text ranges ({{ }} content vs. markup elements) and maintain
+ * independent DecorationSets.
+ *
+ * CSS colour rules are provided by cbsTheme (same file), so both plugins
+ * and their styles can be injected with a single shared import.
+ */
+export const markupHighlighter = ViewPlugin.fromClass(
+    class {
+        decorations: DecorationSet
+
+        constructor(view: EditorView) {
+            this.decorations = this.buildDecorations(view)
+        }
+
+        update(update: ViewUpdate) {
+            if (update.docChanged) {
+                this.decorations = this.buildDecorations(update.view)
+            }
+        }
+
+        buildDecorations(view: EditorView): DecorationSet {
+            const builder = new RangeSetBuilder<Decoration>()
+            const text = view.state.doc.toString()
+
+            type DecoItem = { from: number; to: number; deco: Decoration; priority: number }
+            const decos: DecoItem[] = []
+
+            for (const item of parseXmlTags(text)) {
+                const level = item.level % cbsColors.length
+                decos.push({ from: item.from, to: item.to, deco: _xmlTagDecos[level], priority: 1.5 })
+            }
+
+            for (const item of findStyleTagContents(text)) {
+                const deco =
+                    item.type === 'selector' ? _cssSelectorDeco :
+                    item.type === 'property' ? _cssPropertyDeco :
+                    item.type === 'value'    ? _cssValueDeco    :
+                    item.type === 'bracket'  ? _cssBracketDeco  :
+                                               _cssCommentDeco
+                decos.push({ from: item.from, to: item.to, deco, priority: 1.7 })
+            }
+
+            for (const item of parseMarkdown(text)) {
+                const deco =
+                    item.type === 'h1'         ? _mdH1Deco         :
+                    item.type === 'h2'         ? _mdH2Deco         :
+                    item.type === 'h3'         ? _mdH3Deco         :
+                    item.type === 'heading'    ? _mdHeadingDeco    :
+                    item.type === 'bold'       ? _mdBoldDeco       :
+                    item.type === 'italic'     ? _mdItalicDeco     :
+                    item.type === 'bolditalic' ? _mdBoldItalicDeco :
+                    item.type === 'strike'     ? _mdStrikeDeco     :
+                                                 _mdCodeDeco
+                decos.push({ from: item.from, to: item.to, deco, priority: 1 })
+            }
+
+            decos.sort((a, b) => a.from - b.from || b.priority - a.priority)
+            for (const { from, to, deco } of decos) {
+                builder.add(from, to, deco)
+            }
+
+            return builder.finish()
+        }
+    },
+    { decorations: v => v.decorations }
+)
