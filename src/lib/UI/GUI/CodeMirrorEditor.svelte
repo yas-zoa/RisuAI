@@ -1,11 +1,14 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte'
-    import { highlightSpecialChars, drawSelection, EditorView, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
+    import { highlightSpecialChars, drawSelection, EditorView, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate, keymap, placeholder as cmPlaceholder, lineNumbers } from '@codemirror/view'
     import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { EditorState, RangeSetBuilder } from '@codemirror/state'
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
+    import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
+    import { cbsHighlighter, cbsTheme, markupHighlighter, docString } from 'src/ts/gui/cbsHighlight'
+    import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
         highlightSpecialChars(),
@@ -22,6 +25,7 @@
         class?: string
         height?: '20' | '24' | '28' | '32' | '36' | '40' | 'full' | 'default'
         onInput?: (value: string) => void
+        enableCanvasPopup?: boolean
     }
 
     let {
@@ -30,242 +34,37 @@
         placeholder = '',
         class: className = '',
         height = 'default',
-        onInput
+        onInput,
+        enableCanvasPopup = true
     }: Props = $props()
 
     let editorEl: HTMLDivElement
     let view: EditorView | null = null
-    let isInternalUpdate = false
+    /**
+     * Tracks the last value that was set *from inside the editor* (via
+     * updateListener).  The external-value $effect compares against this to
+     * decide whether an incoming `value` prop change was initiated by the
+     * editor itself, without relying on a synchronous boolean flag that resets
+     * before the $effect callback runs.
+     *
+     * Named "pending" because it holds the value only until the next $effect
+     * run; it is reset to null once the $effect has confirmed the match.
+     */
+    let _pendingInternalValue: string | null = null
+    let canvasOpen = $state(false)
+    let canvasTitle = $state('텍스트 편집')
+
+    const openCanvasEditor = (e: MouseEvent) => {
+        const target = e.currentTarget as HTMLElement | null
+        if (!target || !enableCanvasPopup || !shouldOpenCanvasPopupTarget(target, 60)) return
+        e.preventDefault()
+        e.stopPropagation()
+        canvasTitle = placeholder || '텍스트 편집'
+        canvasOpen = true
+    }
 
     // Check if className contains height classes (h- or min-h-)
     const hasCustomHeight = className.includes('h-') || className.includes('min-h-')
-
-    // CBS nesting level colors
-    const cbsColors = [
-        '#8be9fd', // level 0 - cyan
-        '#50fa7b', // level 1 - green
-        '#ffb86c', // level 2 - orange
-        '#ff79c6', // level 3 - pink
-        '#bd93f9', // level 4 - purple
-    ]
-
-    // CBS highlighting decoration classes
-    const cbsBracketDecos = cbsColors.map((_, i) =>
-        Decoration.mark({ class: `cm-cbs-bracket-${i}` })
-    )
-    const cbsContentDecos = cbsColors.map((_, i) =>
-        Decoration.mark({ class: `cm-cbs-content-${i}` })
-    )
-
-    // CBS parsing
-    function parseCBS(text: string): { from: number; to: number; type: 'bracket' | 'content'; level: number }[] {
-        const results: { from: number; to: number; type: 'bracket' | 'content'; level: number }[] = []
-        let depth = 0
-        let i = 0
-        const stack: number[] = []
-
-        while (i < text.length) {
-            if (text[i] === '{' && text[i + 1] === '{') {
-                results.push({ from: i, to: i + 2, type: 'bracket', level: depth })
-                stack.push(i + 2)
-                depth++
-                i += 2
-            } else if (text[i] === '}' && text[i + 1] === '}' && depth > 0) {
-                depth--
-                const contentStart = stack.pop()!
-                if (i > contentStart) {
-                    results.push({ from: contentStart, to: i, type: 'content', level: depth })
-                }
-                results.push({ from: i, to: i + 2, type: 'bracket', level: depth })
-                i += 2
-            } else {
-                i++
-            }
-        }
-
-        return results
-    }
-
-    // Markdown decoration classes
-    const mdHeading1Deco = Decoration.mark({ class: 'cm-md-h1' })
-    const mdHeading2Deco = Decoration.mark({ class: 'cm-md-h2' })
-    const mdHeading3Deco = Decoration.mark({ class: 'cm-md-h3' })
-    const mdHeadingDeco = Decoration.mark({ class: 'cm-md-heading' }) // h4-h6
-    const mdBoldDeco = Decoration.mark({ class: 'cm-md-bold' })
-    const mdItalicDeco = Decoration.mark({ class: 'cm-md-italic' })
-    const mdBoldItalicDeco = Decoration.mark({ class: 'cm-md-bold-italic' })
-    const mdStrikeDeco = Decoration.mark({ class: 'cm-md-strike' })
-    const mdCodeDeco = Decoration.mark({ class: 'cm-md-code' })
-
-    // XML tag nesting level decorations (same colors as CBS)
-    const xmlTagDecos = cbsColors.map((_, i) =>
-        Decoration.mark({ class: `cm-xml-tag-${i}` })
-    )
-
-    // CSS decoration classes
-    const cssSelectorDeco = Decoration.mark({ class: 'cm-css-selector' })
-    const cssPropertyDeco = Decoration.mark({ class: 'cm-css-property' })
-    const cssValueDeco = Decoration.mark({ class: 'cm-css-value' })
-    const cssBracketDeco = Decoration.mark({ class: 'cm-css-bracket' })
-    const cssCommentDeco = Decoration.mark({ class: 'cm-css-comment' })
-
-    // XML tag parsing with nesting level tracking
-    type XmlTagMatch = { from: number; to: number; level: number }
-
-    function parseXmlTags(text: string): XmlTagMatch[] {
-        const results: XmlTagMatch[] = []
-        const tagStack: string[] = []
-
-        // Match opening tags, closing tags, and self-closing tags
-        const tagRegex = /<(\/?)\s*([a-zA-Z_][\w\-]*)[^>]*?(\/?)>/g
-        let match
-
-        while ((match = tagRegex.exec(text)) !== null) {
-            const isClosing = match[1] === '/'
-            const tagName = match[2].toLowerCase()
-            const isSelfClosing = match[3] === '/'
-
-            if (isSelfClosing) {
-                // Self-closing tag: use current depth
-                results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
-            } else if (isClosing) {
-                // Closing tag: pop from stack first, then color at new level
-                const lastIndex = tagStack.lastIndexOf(tagName)
-                if (lastIndex !== -1) {
-                    tagStack.splice(lastIndex, 1)
-                }
-                results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
-            } else {
-                // Opening tag: color at current level, then push
-                results.push({ from: match.index, to: match.index + match[0].length, level: tagStack.length })
-                tagStack.push(tagName)
-            }
-        }
-
-        return results
-    }
-
-    // CSS parsing for <style> tag contents
-    type CssMatch = { from: number; to: number; type: 'selector' | 'property' | 'value' | 'bracket' | 'comment' }
-
-    function parseCSS(text: string, offset: number): CssMatch[] {
-        const results: CssMatch[] = []
-
-        // Comments: /* ... */
-        const commentRegex = /\/\*[\s\S]*?\*\//g
-        let match
-        while ((match = commentRegex.exec(text)) !== null) {
-            results.push({ from: offset + match.index, to: offset + match.index + match[0].length, type: 'comment' })
-        }
-
-        // Remove comments for further parsing
-        const textNoComments = text.replace(/\/\*[\s\S]*?\*\//g, m => ' '.repeat(m.length))
-
-        // Find all braces positions
-        const braceRegex = /[{}]/g
-        while ((match = braceRegex.exec(textNoComments)) !== null) {
-            results.push({ from: offset + match.index, to: offset + match.index + 1, type: 'bracket' })
-        }
-
-        // Parse selectors (text before {)
-        const selectorRegex = /([^{}]+?)(\s*\{)/g
-        while ((match = selectorRegex.exec(textNoComments)) !== null) {
-            const selector = match[1].trim()
-            if (selector.length > 0) {
-                // Find actual position of selector in original text
-                const searchStart = match.index
-                const selectorPos = textNoComments.indexOf(selector, searchStart)
-                if (selectorPos !== -1) {
-                    results.push({ from: offset + selectorPos, to: offset + selectorPos + selector.length, type: 'selector' })
-                }
-            }
-        }
-
-        // Parse property: value pairs
-        const declRegex = /([\w-]+)(\s*:\s*)([^;{}]+)/g
-        while ((match = declRegex.exec(textNoComments)) !== null) {
-            const propName = match[1]
-            const colonPart = match[2]
-            const propValue = match[3].trimEnd()
-
-            // Property name position
-            const propStart = match.index
-            results.push({ from: offset + propStart, to: offset + propStart + propName.length, type: 'property' })
-
-            // Value position (after property name and colon)
-            const valueStart = propStart + propName.length + colonPart.length
-            results.push({ from: offset + valueStart, to: offset + valueStart + propValue.length, type: 'value' })
-        }
-
-        return results
-    }
-
-    // Find <style> tag contents and parse CSS
-    function findStyleTagContents(text: string): CssMatch[] {
-        const results: CssMatch[] = []
-        const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi
-        let match
-
-        while ((match = styleRegex.exec(text)) !== null) {
-            const cssContent = match[1]
-            const cssStart = match.index + match[0].indexOf(cssContent)
-            const cssMatches = parseCSS(cssContent, cssStart)
-            results.push(...cssMatches)
-        }
-
-        return results
-    }
-
-    // Markdown parsing (regex-based for universal highlighting)
-    type MarkdownMatch = { from: number; to: number; type: 'h1' | 'h2' | 'h3' | 'heading' | 'bold' | 'italic' | 'bolditalic' | 'strike' | 'code' }
-
-    function parseMarkdown(text: string): MarkdownMatch[] {
-        const results: MarkdownMatch[] = []
-
-        // Headings: # at line start (up to 6 levels)
-        const headingRegex = /^(#{1,6})\s+.+$/gm
-        let match
-        while ((match = headingRegex.exec(text)) !== null) {
-            const level = match[1].length
-            let type: 'h1' | 'h2' | 'h3' | 'heading' = 'heading'
-            if (level === 1) type = 'h1'
-            else if (level === 2) type = 'h2'
-            else if (level === 3) type = 'h3'
-            results.push({ from: match.index, to: match.index + match[0].length, type })
-        }
-
-        // Bold+Italic: ***text*** (not underscore style to avoid variable_name issues, no newlines)
-        const boldItalicRegex = /(\*\*\*)(?!\s)([^\*\n]+?)(?<!\s)\1/g
-        while ((match = boldItalicRegex.exec(text)) !== null) {
-            results.push({ from: match.index, to: match.index + match[0].length, type: 'bolditalic' })
-        }
-
-        // Bold: **text** (not *** or underscore style to avoid variable_name issues, no newlines)
-        const boldRegex = /(?<!\*)(\*\*)(?!\*)(?!\s)([^\*\n]+?)(?<!\s)(?<!\*)\1(?!\*)/g
-        while ((match = boldRegex.exec(text)) !== null) {
-            results.push({ from: match.index, to: match.index + match[0].length, type: 'bold' })
-        }
-
-        // Italic: *text* (not ** or underscore style to avoid variable_name issues, no newlines)
-        const italicRegex = /(?<!\*)(\*)(?!\*)(?!\s)([^\*\n]+?)(?<!\s)(?<!\*)\1(?!\*)/g
-        while ((match = italicRegex.exec(text)) !== null) {
-            results.push({ from: match.index, to: match.index + match[0].length, type: 'italic' })
-        }
-
-        // Strikethrough: ~~text~~ (no newlines)
-        const strikeRegex = /~~(?!\s)([^\n]+?)(?<!\s)~~/g
-        while ((match = strikeRegex.exec(text)) !== null) {
-            results.push({ from: match.index, to: match.index + match[0].length, type: 'strike' })
-        }
-
-        // Inline code: `code`
-        const codeRegex = /`([^`\n]+)`/g
-        while ((match = codeRegex.exec(text)) !== null) {
-            results.push({ from: match.index, to: match.index + match[0].length, type: 'code' })
-        }
-
-        return results
-    }
 
     // Regex decoration classes
     const regexGroupDeco = Decoration.mark({ class: 'cm-regex-group' })
@@ -590,95 +389,10 @@
         }
     }
 
-    // CBS ViewPlugin
-    const cbsHighlighter = ViewPlugin.fromClass(
-        class {
-            decorations: DecorationSet
-
-            constructor(view: EditorView) {
-                this.decorations = this.buildDecorations(view)
-            }
-
-            update(update: ViewUpdate) {
-                if (update.docChanged || update.viewportChanged) {
-                    this.decorations = this.buildDecorations(update.view)
-                }
-            }
-
-            buildDecorations(view: EditorView): DecorationSet {
-                const builder = new RangeSetBuilder<Decoration>()
-                const text = view.state.doc.toString()
-
-                // Collect all decorations
-                type DecoItem = { from: number; to: number; deco: Decoration; priority: number }
-                const decos: DecoItem[] = []
-
-                // CBS decorations (highest priority)
-                const cbsParsed = parseCBS(text)
-                for (const item of cbsParsed) {
-                    const level = item.level % cbsColors.length
-                    if (item.type === 'bracket') {
-                        decos.push({ from: item.from, to: item.to, deco: cbsBracketDecos[level], priority: 2 })
-                    } else {
-                        decos.push({ from: item.from, to: item.to, deco: cbsContentDecos[level], priority: 2 })
-                    }
-                }
-
-                // XML tag decorations (with nesting levels)
-                const xmlParsed = parseXmlTags(text)
-                for (const item of xmlParsed) {
-                    const level = item.level % cbsColors.length
-                    decos.push({ from: item.from, to: item.to, deco: xmlTagDecos[level], priority: 1.5 })
-                }
-
-                // CSS decorations (inside <style> tags)
-                const cssParsed = findStyleTagContents(text)
-                for (const item of cssParsed) {
-                    let deco: Decoration
-                    switch (item.type) {
-                        case 'selector': deco = cssSelectorDeco; break
-                        case 'property': deco = cssPropertyDeco; break
-                        case 'value': deco = cssValueDeco; break
-                        case 'bracket': deco = cssBracketDeco; break
-                        case 'comment': deco = cssCommentDeco; break
-                    }
-                    decos.push({ from: item.from, to: item.to, deco, priority: 1.7 })
-                }
-
-                // Markdown decorations (lower priority than CBS, XML, and CSS)
-                const mdParsed = parseMarkdown(text)
-                for (const item of mdParsed) {
-                    let deco: Decoration
-                    switch (item.type) {
-                        case 'h1': deco = mdHeading1Deco; break
-                        case 'h2': deco = mdHeading2Deco; break
-                        case 'h3': deco = mdHeading3Deco; break
-                        case 'heading': deco = mdHeadingDeco; break
-                        case 'bold': deco = mdBoldDeco; break
-                        case 'italic': deco = mdItalicDeco; break
-                        case 'bolditalic': deco = mdBoldItalicDeco; break
-                        case 'strike': deco = mdStrikeDeco; break
-                        case 'code': deco = mdCodeDeco; break
-                    }
-                    decos.push({ from: item.from, to: item.to, deco, priority: 1 })
-                }
-
-                // Sort by position (required by RangeSetBuilder)
-                decos.sort((a, b) => a.from - b.from || b.priority - a.priority)
-
-                for (const item of decos) {
-                    builder.add(item.from, item.to, item.deco)
-                }
-
-                return builder.finish()
-            }
-        },
-        {
-            decorations: (v) => v.decorations,
-        }
-    )
-
-    // Regex ViewPlugin
+    // Regex ViewPlugin — simple single-pass rebuild (see cbsHighlight.ts for
+    // the rationale; same principle applies here).  No parse cache / viewport
+    // coverage check / binary-search remap: on the 2-20 KB documents this
+    // editor typically hosts, the cache bookkeeping cost exceeded the savings.
     const regexHighlighter = ViewPlugin.fromClass(
         class {
             decorations: DecorationSet
@@ -695,26 +409,23 @@
 
             buildDecorations(view: EditorView): DecorationSet {
                 const builder = new RangeSetBuilder<Decoration>()
-                const text = view.state.doc.toString()
-
-                const regexParsed = parseRegex(text)
+                const text = docString(view.state.doc)
                 const decos: { from: number; to: number; deco: Decoration }[] = []
 
-                for (const item of regexParsed) {
+                for (const item of parseRegex(text)) {
                     let deco: Decoration
                     switch (item.type) {
-                        case 'group': deco = regexGroupDeco; break
-                        case 'charclass': deco = regexCharClassDeco; break
-                        case 'quantifier': deco = regexQuantifierDeco; break
-                        case 'anchor': deco = regexAnchorDeco; break
-                        case 'escape': deco = regexEscapeDeco; break
+                        case 'group':       deco = regexGroupDeco;       break
+                        case 'charclass':   deco = regexCharClassDeco;   break
+                        case 'quantifier':  deco = regexQuantifierDeco;  break
+                        case 'anchor':      deco = regexAnchorDeco;      break
+                        case 'escape':      deco = regexEscapeDeco;      break
                         case 'alternation': deco = regexAlternationDeco; break
                     }
                     decos.push({ from: item.from, to: item.to, deco })
                 }
 
                 decos.sort((a, b) => a.from - b.from)
-
                 for (const item of decos) {
                     builder.add(item.from, item.to, item.deco)
                 }
@@ -754,9 +465,9 @@
         '.cm-selectionBackground, ::selection': {
             backgroundColor: 'rgba(255, 255, 255, 0.2) !important',
         },
-        '.cm-gutters': {
-            display: 'none',
-        },
+        // Gutter styling is provided by cbsTheme (Catppuccin Mocha) when lineNumbers()
+        // is active.  No display:none here so the gutter renders when lineNumbers() is
+        // added for cbs mode.
         '.cm-activeLine': {
             backgroundColor: 'transparent',
         },
@@ -797,39 +508,8 @@
         '.cm-completionIcon': {
             opacity: 0.7,
         },
-        // CBS styles
-        '.cm-cbs-bracket-0': { color: '#8be9fd', fontWeight: 'bold' },
-        '.cm-cbs-bracket-1': { color: '#50fa7b', fontWeight: 'bold' },
-        '.cm-cbs-bracket-2': { color: '#ffb86c', fontWeight: 'bold' },
-        '.cm-cbs-bracket-3': { color: '#ff79c6', fontWeight: 'bold' },
-        '.cm-cbs-bracket-4': { color: '#bd93f9', fontWeight: 'bold' },
-        '.cm-cbs-content-0': { color: '#8be9fd' },
-        '.cm-cbs-content-1': { color: '#50fa7b' },
-        '.cm-cbs-content-2': { color: '#ffb86c' },
-        '.cm-cbs-content-3': { color: '#ff79c6' },
-        '.cm-cbs-content-4': { color: '#bd93f9' },
-        // Markdown styles (regex-based)
-        '.cm-md-h1': { color: '#ffd700', fontWeight: 'bold', fontSize: '1.4em' },
-        '.cm-md-h2': { color: '#ffd700', fontWeight: 'bold', fontSize: '1.2em' },
-        '.cm-md-h3': { color: '#ffd700', fontWeight: 'bold', fontSize: '1.1em' },
-        '.cm-md-heading': { color: '#ffd700', fontWeight: 'bold' }, // h4-h6
-        '.cm-md-bold': { color: '#ffb86c', fontWeight: 'bold' },
-        '.cm-md-italic': { color: '#f1fa8c', fontStyle: 'italic' },
-        '.cm-md-bold-italic': { color: '#ffb86c', fontWeight: 'bold', fontStyle: 'italic' },
-        '.cm-md-strike': { color: '#6272a4', textDecoration: 'line-through' },
-        '.cm-md-code': { color: '#50fa7b', backgroundColor: 'rgba(80, 250, 123, 0.1)' },
-        // XML tag styles (nesting level colors, same as CBS)
-        '.cm-xml-tag-0': { color: '#8be9fd' },
-        '.cm-xml-tag-1': { color: '#50fa7b' },
-        '.cm-xml-tag-2': { color: '#ffb86c' },
-        '.cm-xml-tag-3': { color: '#ff79c6' },
-        '.cm-xml-tag-4': { color: '#bd93f9' },
-        // CSS styles (inside <style> tags)
-        '.cm-css-selector': { color: '#50fa7b' },
-        '.cm-css-property': { color: '#8be9fd' },
-        '.cm-css-value': { color: '#f1fa8c' },
-        '.cm-css-bracket': { color: '#ff79c6', fontWeight: 'bold' },
-        '.cm-css-comment': { color: '#6272a4', fontStyle: 'italic' },
+        // Note: CBS bracket/content/keyword, Markdown, XML tag, and CSS-in-style
+        // colour rules are provided by cbsTheme (imported from cbsHighlight.ts).
         // Regex styles
         '.cm-regex-group': { color: '#ff79c6', fontWeight: 'bold' },
         '.cm-regex-charclass': { color: '#8be9fd' },
@@ -842,10 +522,12 @@
     // Value change listener
     const updateListener = EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-            isInternalUpdate = true
-            value = update.state.doc.toString()
-            onInput?.(value)
-            isInternalUpdate = false
+            // docString() caches the rope → string conversion so subsequent
+            // plugin calls in the same update cycle reuse the same string.
+            const text = docString(update.state.doc)
+            _pendingInternalValue = text
+            value = text
+            onInput?.(text)
         }
     })
 
@@ -868,14 +550,23 @@
         if (lang === 'regex') {
             extensions.push(regexHighlighter)
         } else if (lang !== 'plain') {
-            // CBS highlighting for markdown, html, cbs modes
+            // CBS + language-specific highlighting for markdown, html, cbs modes.
+            // cbsTheme supplies Catppuccin Mocha gutter styles and CBS colour rules.
+            // cbsHighlighter handles {{ }} nesting + keyword highlighting (incremental).
+            // markupHighlighter handles XML tags, CSS-in-style, and Markdown.
+            // lineNumbers() is added only for cbs mode (macro editing context).
             extensions.push(
+                cbsTheme,
+                cbsHighlighter,
                 autocompletion({
                     override: [cbsCompletionSource],
                     activateOnTyping: true,
                 }),
-                cbsHighlighter
+                markupHighlighter,
             )
+            if (lang === 'cbs') {
+                extensions.push(lineNumbers())
+            }
         }
 
         view = new EditorView({
@@ -889,10 +580,17 @@
 
     // Update editor when value changes externally
     $effect(() => {
-        // Track value explicitly
         const newValue = value ?? ''
 
-        if (view && !isInternalUpdate) {
+        // If this value was just set by the editor itself (via updateListener),
+        // skip — there is no external change to apply.  Reset the sentinel so
+        // that a subsequent identical value written externally is still applied.
+        if (newValue === _pendingInternalValue) {
+            _pendingInternalValue = null
+            return
+        }
+
+        if (view) {
             const currentValue = view.state.doc.toString()
             if (newValue !== currentValue) {
                 view.dispatch({
@@ -925,6 +623,8 @@
 
 <div
     bind:this={editorEl}
+    oncontextmenu={openCanvasEditor}
+    role="presentation"
     class="w-full border border-selected rounded-md overflow-hidden {className}"
     class:h-20={!hasCustomHeight && (height === '20' || (height === 'default' && $textAreaSize === -5))}
     class:h-24={!hasCustomHeight && (height === '24' || (height === 'default' && $textAreaSize === -4))}
@@ -950,3 +650,17 @@
     class:min-h-72={!hasCustomHeight && height === 'default' && $textAreaSize === 4}
     class:min-h-80={!hasCustomHeight && height === 'default' && $textAreaSize === 5}
 ></div>
+
+<CanvasEditorModal
+    open={canvasOpen}
+    value={value ?? ''}
+    title={canvasTitle}
+    lang={lang}
+    onClose={() => {
+        canvasOpen = false
+    }}
+    onSave={(nextValue) => {
+        value = nextValue
+        onInput?.(nextValue)
+    }}
+/>

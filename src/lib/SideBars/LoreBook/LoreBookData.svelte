@@ -1,5 +1,6 @@
 <script lang="ts">
     import { XIcon, LinkIcon, SunIcon, BookCopyIcon, FolderIcon, FolderOpen, FolderInputIcon, PlusIcon, PencilIcon } from "lucide-svelte";
+    import { onDestroy } from "svelte";
     import { v4 } from "uuid";
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
@@ -47,11 +48,49 @@
         open = isOpen
     })
 
-    async function getTokens(data:string){
-        tokens = await tokenizeAccurate(data)
-        return tokens
-    }
     let tokens = $state(0)
+
+    // Debounce tokenizeAccurate during typing.  Previously the template had
+    // {#await getTokens(value.content)} which re-awaited tokenizeAccurate on
+    // every keystroke in the lore-entry CodeMirrorEditor (content can be
+    // 10–20 KB) — each call walked the full text through the tokenizer,
+    // blocking the input loop on mobile.  300 ms trailing-edge coalesces
+    // typing bursts; first run fires immediately so the counter isn't blank
+    // on mount.  A monotonically increasing request id drops stale
+    // resolutions if the user keeps typing while an older tokenize is still
+    // awaiting.
+    let _tokenizeTimer: ReturnType<typeof setTimeout> | null = null
+    let _lastTokenizedContent: string | null = null
+    let _tokenizeReqId = 0
+    $effect(() => {
+        const content = value.content ?? ''
+        if (content === _lastTokenizedContent) return
+        const delay = _lastTokenizedContent === null ? 0 : 300
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+        _tokenizeTimer = setTimeout(() => {
+            _tokenizeTimer = null
+            const reqId = ++_tokenizeReqId
+            const snapshot = content
+            tokenizeAccurate(snapshot)
+                .then(v => {
+                    if (reqId === _tokenizeReqId) {
+                        _lastTokenizedContent = snapshot
+                        tokens = v
+                    }
+                })
+                .catch(err => {
+                    // Preserve the last successful token count (matches the
+                    // original {#await} semantics — the :catch branch was
+                    // never rendered; the pending branch kept showing the
+                    // stale `tokens` value on rejection).  Log so failures
+                    // don't swallow silently.
+                    console.error('tokenizeAccurate failed for lore content', err)
+                })
+        }, delay)
+    })
+    onDestroy(() => {
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+    })
 
     function isLocallyActivated(book: loreBook){
         return book.id ? getCurrentChat()?.localLore.some(e => e.id === book.id) : false
@@ -260,11 +299,7 @@
             {/if}
             <span class="text-textcolor mt-4 mb-2">{language.prompt}</span>
             <CodeMirrorEditor bind:value={value.content} height="default" />
-            {#await getTokens(value.content)}
-                <span class="text-textcolor2 mt-2 mb-2 text-sm">{tokens} {language.tokens}</span>
-            {:then e}
-                <span class="text-textcolor2 mt-2 mb-2 text-sm">{e} {language.tokens}</span>
-            {/await}
+            <span class="text-textcolor2 mt-2 mb-2 text-sm">{tokens} {language.tokens}</span>
             <div class="flex items-center mt-4">
                 <Check bind:check={value.alwaysActive} name={language.alwaysActive}/>
             </div>

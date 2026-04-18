@@ -72,10 +72,60 @@
         if(lasttokens.localNote !== DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note){
             lasttokens.localNote = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note
             tokens.localNote = await tokenizeAccurate(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note)
-        
+
         }
 
     }
+
+    // Debounce loadTokenize during typing.  Previously the $effect.pre below
+    // called loadTokenize unconditionally on every keystroke, which fired up
+    // to three `await tokenizeAccurate(...)` passes (desc / firstMessage /
+    // localNote) per character typed — noticeable jank on mobile for
+    // multi-KB character fields.  First call fires immediately so token
+    // counters aren't blank on mount; subsequent calls coalesce on a 300 ms
+    // trailing-edge.  Must be kept in sync with loadTokenize's field list —
+    // the sync-read block in the effect establishes reactive deps for the
+    // same fields loadTokenize consumes.
+    //
+    // loadTokenize is async and each scheduled run can outlast its timer,
+    // so without a guard a slow earlier run could resolve after a faster
+    // later run and overwrite tokens.* with stale values.  Serialize runs
+    // with an in-flight flag; if a new schedule arrives mid-run, remember
+    // to re-run once the current pass finishes.  This matches the loop
+    // pattern used in fetch-on-typeahead and never drops the latest edit.
+    let _tokenizeTimer: ReturnType<typeof setTimeout> | null = null
+    let _hasTokenizedOnce = false
+    let _tokenizeInFlight = false
+    let _tokenizeRerunRequested = false
+
+    const runScheduledTokenize = async () => {
+        if (_tokenizeInFlight) {
+            _tokenizeRerunRequested = true
+            return
+        }
+        _tokenizeInFlight = true
+        try {
+            do {
+                _tokenizeRerunRequested = false
+                await loadTokenize(DBState.db.characters[$selectedCharID])
+            } while (_tokenizeRerunRequested)
+        } finally {
+            _tokenizeInFlight = false
+        }
+    }
+
+    const scheduleTokenize = () => {
+        const delay = _hasTokenizedOnce ? 300 : 0
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+        _tokenizeTimer = setTimeout(() => {
+            _tokenizeTimer = null
+            _hasTokenizedOnce = true
+            void runScheduledTokenize()
+        }, delay)
+    }
+    onDestroy(() => {
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+    })
 
 
     let assetFileExtensions:string[] = $state([])
@@ -84,7 +134,22 @@
 
     $effect.pre(() => {
         emos = DBState.db.characters[$selectedCharID].emotionImages
-        loadTokenize(DBState.db.characters[$selectedCharID])
+
+        // Sync reads that establish reactive deps for loadTokenize's fields.
+        // Async code inside loadTokenize runs outside the effect's tracking
+        // scope (via scheduleTokenize's setTimeout), so the reads must happen
+        // here.  Optional chaining on `chats[chatPage]` is defensive — the
+        // original loadTokenize dereferences it unguarded; preserve that
+        // behavior inside loadTokenize but don't propagate a TypeError from
+        // the dep-tracker.
+        const _cha = DBState.db.characters[$selectedCharID]
+        void _cha.type
+        if (_cha.type !== 'group') {
+            void (_cha as character).desc
+            void (_cha as character).firstMessage
+        }
+        void _cha.chats[_cha.chatPage]?.note
+        scheduleTokenize()
 
         if(DBState.db.characters[$selectedCharID].type ==='character' && DBState.db.useAdditionalAssetsPreview){
             if((DBState.db.characters[$selectedCharID] as character).additionalAssets){

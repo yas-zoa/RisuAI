@@ -11,6 +11,7 @@
     import Arcodion from "src/lib/UI/Arcodion.svelte";
   import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
   import { ReloadGUIPointer } from "src/ts/stores.svelte";
+  import { onDestroy } from "svelte";
 
   interface Props {
     value: customscript;
@@ -27,6 +28,23 @@
     onOpen = () => {},
     idx
   }: Props = $props();
+
+  // Debounce cross-screen ReloadGUIPointer bumps.  Every keystroke in the OUT
+  // editor used to flush BackgroundDom + Chat + SideChatList markdown reparses
+  // synchronously via `{#key $ReloadGUIPointer}`.  250 ms trailing-edge is low
+  // enough that mid-typing regex changes still propagate quickly, and high
+  // enough that a typical typing burst coalesces into one reparse.
+  let _reloadTimer: ReturnType<typeof setTimeout> | null = null
+  const scheduleReloadBump = () => {
+    if (_reloadTimer !== null) clearTimeout(_reloadTimer)
+    _reloadTimer = setTimeout(() => {
+      _reloadTimer = null
+      $ReloadGUIPointer += 1
+    }, 250)
+  }
+  onDestroy(() => {
+    if (_reloadTimer !== null) clearTimeout(_reloadTimer)
+  })
 
     const checkFlagContain = (flag:string, matchFlag:string) => {
         if(flag.length === 1){
@@ -126,9 +144,7 @@
             <span class="text-textcolor mt-6">IN:</span>
             <CodeMirrorEditor bind:value={value.in} lang="regex" class="h-14" />
             <span class="text-textcolor mt-6">OUT:</span>
-            <CodeMirrorEditor bind:value={value.out} height="default" onInput={() => {
-                $ReloadGUIPointer += 1
-            }} />
+            <CodeMirrorEditor bind:value={value.out} height="default" onInput={scheduleReloadBump} />
             {#if value.ableFlag}
                 <!-- <span class="text-textcolor mt-6">FLAG:</span>
                 <TextInput size="sm" bind:value={value.flag} /> -->
