@@ -420,12 +420,6 @@ export const cbsHighlighter = ViewPlugin.fromClass(
     { decorations: v => v.decorations }
 )
 
-// Backwards-compat alias for modules that imported `markupHighlighter`
-// separately.  The combined plugin handles markup already, so the alias is
-// intentionally the same object — CM6 deduplicates repeated ViewPlugin specs
-// in an EditorState extension list, so including both references is safe.
-export const markupHighlighter = cbsHighlighter
-
 // ── Shared theme (colours) ─────────────────────────────────────────────────
 /**
  * CBS + markup colour rules.  Safe for any editor host: contains no

@@ -12,7 +12,7 @@
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
     import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme, markupHighlighter } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme } from 'src/ts/gui/cbsHighlight'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -344,13 +344,11 @@
             extensions.push(html())
         }
 
-        // CBS bracket/content/keyword highlighting for all non-plain, non-regex modes.
-        // cbsHighlighter is stateless as a ViewPlugin spec; each EditorView instance
-        // maintains its own plugin state (DecorationSet + incremental cache).
-        // markupHighlighter adds XML tag nesting, CSS-in-<style>, and Markdown
-        // decorations; it coexists safely with cbsHighlighter (independent DecorationSets).
+        // Single combined ViewPlugin — handles CBS brackets/content/keywords +
+        // XML tag nesting + CSS-in-<style> + Markdown in one pass.  See
+        // cbsHighlight.ts for the rationale behind the single-plugin design.
         if (lang !== 'plain' && lang !== 'regex') {
-            extensions.push(cbsHighlighter, markupHighlighter)
+            extensions.push(cbsHighlighter)
         }
 
         return extensions

@@ -7,7 +7,7 @@
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
     import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, markupHighlighter, docString } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, docString } from 'src/ts/gui/cbsHighlight'
     import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
@@ -551,9 +551,11 @@
             extensions.push(regexHighlighter)
         } else if (lang !== 'plain') {
             // CBS + language-specific highlighting for markdown, html, cbs modes.
-            // cbsTheme supplies Catppuccin Mocha gutter styles and CBS colour rules.
-            // cbsHighlighter handles {{ }} nesting + keyword highlighting (incremental).
-            // markupHighlighter handles XML tags, CSS-in-style, and Markdown.
+            // cbsTheme supplies CBS / markdown / XML / CSS colour rules (no gutter
+            // styling — inline editor follows RisuAI's --risu-* palette).
+            // cbsHighlighter is a SINGLE ViewPlugin that runs every parser
+            // (CBS + CBS keywords + XML + CSS-in-<style> + Markdown) in one pass
+            // per update — see cbsHighlight.ts for rationale.
             // lineNumbers() is added only for cbs mode (macro editing context).
             extensions.push(
                 cbsTheme,
@@ -562,7 +564,6 @@
                     override: [cbsCompletionSource],
                     activateOnTyping: true,
                 }),
-                markupHighlighter,
             )
             if (lang === 'cbs') {
                 extensions.push(lineNumbers())
