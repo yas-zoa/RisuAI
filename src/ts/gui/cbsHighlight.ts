@@ -426,11 +426,12 @@ export const cbsHighlighter = ViewPlugin.fromClass(
 // in an EditorState extension list, so including both references is safe.
 export const markupHighlighter = cbsHighlighter
 
-// ── Shared theme ──────────────────────────────────────────────────────────────
+// ── Shared theme (colours) ─────────────────────────────────────────────────
 /**
- * Catppuccin Mocha gutter styling + CBS / markup colour rules.
- *
- * Apply this as an extension alongside cbsHighlighter.
+ * CBS + markup colour rules.  Safe for any editor host: contains no
+ * Catppuccin-specific gutter styling, so inline editors using RisuAI's own
+ * `--risu-*` CSS variable palette can apply this without conflicting with the
+ * app-level theme.
  *
  * IMPORTANT: keyword rules (.cm-cbs-kw-*) are placed AFTER the content rules
  * (.cm-cbs-content-*).  Both selectors have equal specificity (single class),
@@ -438,23 +439,6 @@ export const markupHighlighter = cbsHighlighter
  * colours priority over level colours.
  */
 export const cbsTheme = EditorView.theme({
-    // ── Gutter (Catppuccin Mocha) ───────────────────────────────────────────
-    '.cm-gutters': {
-        backgroundColor: '#1e1e2e',
-        borderRight: 'none',
-        color: '#a6adc8',
-    },
-    '.cm-lineNumbers .cm-gutterElement': {
-        color: '#a6adc8',
-        padding: '0 8px 0 4px',
-        fontSize: '12px',
-        minWidth: '2.5ch',
-    },
-    '.cm-activeLineGutter': {
-        backgroundColor: '#313244',
-        color: '#cdd6f4',
-    },
-
     // ── CBS bracket colours (PR #72 — DO NOT CHANGE) ─────────────────────
     '.cm-cbs-bracket-0': { color: '#8be9fd', fontWeight: 'bold' },
     '.cm-cbs-bracket-1': { color: '#50fa7b', fontWeight: 'bold' },
@@ -497,4 +481,34 @@ export const cbsTheme = EditorView.theme({
     '.cm-css-value':    { color: '#f1fa8c' },
     '.cm-css-bracket':  { color: '#ff79c6', fontWeight: 'bold' },
     '.cm-css-comment':  { color: '#6272a4', fontStyle: 'italic' },
+})
+
+// ── Catppuccin Mocha gutter theme (opt-in) ──────────────────────────────
+/**
+ * Gutter-only Catppuccin Mocha palette.  Applied in editors that *do* show a
+ * gutter and want the Mocha look — primarily the canvas popup (long-form
+ * editor, visually distinct from the main app chrome).
+ *
+ * Inline editors (e.g. CodeMirrorEditor embedded in settings / sidebars)
+ * follow RisuAI's app-wide theme via the `--risu-*` CSS variables and should
+ * NOT import this; their gutter (when a rare `lang='cbs'` mode turns
+ * `lineNumbers()` on) inherits the browser default or the host component's
+ * `customTheme`.
+ */
+export const catppuccinGutterTheme = EditorView.theme({
+    '.cm-gutters': {
+        backgroundColor: '#1e1e2e', // Mocha Base
+        borderRight: 'none',
+        color: '#a6adc8',           // Subtext0
+    },
+    '.cm-lineNumbers .cm-gutterElement': {
+        color: '#a6adc8',
+        padding: '0 8px 0 4px',
+        fontSize: '12px',
+        minWidth: '2.5ch',
+    },
+    '.cm-activeLineGutter': {
+        backgroundColor: '#313244', // Surface0
+        color: '#cdd6f4',           // Mocha Text
+    },
 })

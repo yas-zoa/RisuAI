@@ -12,7 +12,7 @@
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
     import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, markupHighlighter } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme, markupHighlighter } from 'src/ts/gui/cbsHighlight'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -220,10 +220,14 @@
             drawSelection(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             EditorView.lineWrapping,
-            // cbsTheme: Catppuccin Mocha gutter styling + CBS bracket/keyword colours.
-            // Applied before the component-local theme so local overrides win for
-            // search-panel, user-highlight, etc.
+            // cbsTheme: CBS bracket/keyword + markup colour rules (shared with
+            // inline editor).  catppuccinGutterTheme: Mocha-palette gutter rules,
+            // popup-only — inline editor uses RisuAI's --risu-* theme and must
+            // NOT receive this.  Both applied before the component-local theme
+            // so local overrides (search-panel, user-highlight, modal chrome)
+            // still win downstream.
             cbsTheme,
+            catppuccinGutterTheme,
             // Fix: fill fixed-height flex container and let CM scroll internally
             EditorView.theme({
                 '&': { height: '100%' },
