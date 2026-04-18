@@ -12,7 +12,7 @@
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
     import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme, docString } from 'src/ts/gui/cbsHighlight'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -67,7 +67,17 @@
     let memos = $state<CanvasMemoItem[]>([])
     let wasOpen = $state(false)
     /** Prevents the external $effect from re-dispatching CM-initiated changes */
-    let isInternalUpdate = false
+    /**
+     * Tracks the last text that was pushed into `draft` from inside the
+     * editor (via the updateListener).  The `syncDraftToEditor` effect
+     * compares its scheduled `draft` against this value to decide whether
+     * the incoming change was editor-initiated (skip — nothing to do) vs.
+     * externally-initiated (dispatch back into the editor).  A sync boolean
+     * flag doesn't work here because Svelte 5 $effect flushes after the
+     * updateListener returns, so the flag would always read false when the
+     * effect runs.
+     */
+    let _pendingInternalValue: string | null = null
 
     // ── Toast ─────────────────────────────────────────────────────────────────
     let toastMsg = $state('')
@@ -323,9 +333,9 @@
             keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
                 if (!update.docChanged) return
-                isInternalUpdate = true
-                draft = update.state.doc.toString()
-                isInternalUpdate = false
+                const text = docString(update.state.doc)
+                _pendingInternalValue = text
+                draft = text
                 // Debounce highlight persistence so rapid typing doesn't
                 // hammer localStorage on every keystroke.
                 if (_highlightSaveTimer !== null) clearTimeout(_highlightSaveTimer)
@@ -391,8 +401,16 @@
     }
 
     const syncDraftToEditor = () => {
-        if (!view || isInternalUpdate) return
-        const current = view.state.doc.toString()
+        if (!view) return
+        // Editor-initiated change: updateListener just set _pendingInternalValue
+        // to this same string, so there's nothing to dispatch back.  Early-exit
+        // avoids the O(n) docString call and a redundant view.dispatch.
+        if (draft === _pendingInternalValue) {
+            _pendingInternalValue = null
+            return
+        }
+        _pendingInternalValue = null
+        const current = docString(view.state.doc)
         if (current === draft) return
         const selection = view.state.selection.main
         const nextLength = draft.length
