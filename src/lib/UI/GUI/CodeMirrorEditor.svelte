@@ -7,7 +7,7 @@
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
     import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, markupHighlighter } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, docString } from 'src/ts/gui/cbsHighlight'
     import CanvasEditorModal from './CanvasEditorModal.svelte'
 
     const minimalSetup = [
@@ -40,7 +40,17 @@
 
     let editorEl: HTMLDivElement
     let view: EditorView | null = null
-    let isInternalUpdate = false
+    /**
+     * Tracks the last value that was set *from inside the editor* (via
+     * updateListener).  The external-value $effect compares against this to
+     * decide whether an incoming `value` prop change was initiated by the
+     * editor itself, without relying on a synchronous boolean flag that resets
+     * before the $effect callback runs.
+     *
+     * Named "pending" because it holds the value only until the next $effect
+     * run; it is reset to null once the $effect has confirmed the match.
+     */
+    let _pendingInternalValue: string | null = null
     let canvasOpen = $state(false)
     let canvasTitle = $state('텍스트 편집')
 
@@ -379,7 +389,10 @@
         }
     }
 
-    // Regex ViewPlugin
+    // Regex ViewPlugin — simple single-pass rebuild (see cbsHighlight.ts for
+    // the rationale; same principle applies here).  No parse cache / viewport
+    // coverage check / binary-search remap: on the 2-20 KB documents this
+    // editor typically hosts, the cache bookkeeping cost exceeded the savings.
     const regexHighlighter = ViewPlugin.fromClass(
         class {
             decorations: DecorationSet
@@ -396,26 +409,23 @@
 
             buildDecorations(view: EditorView): DecorationSet {
                 const builder = new RangeSetBuilder<Decoration>()
-                const text = view.state.doc.toString()
-
-                const regexParsed = parseRegex(text)
+                const text = docString(view.state.doc)
                 const decos: { from: number; to: number; deco: Decoration }[] = []
 
-                for (const item of regexParsed) {
+                for (const item of parseRegex(text)) {
                     let deco: Decoration
                     switch (item.type) {
-                        case 'group': deco = regexGroupDeco; break
-                        case 'charclass': deco = regexCharClassDeco; break
-                        case 'quantifier': deco = regexQuantifierDeco; break
-                        case 'anchor': deco = regexAnchorDeco; break
-                        case 'escape': deco = regexEscapeDeco; break
+                        case 'group':       deco = regexGroupDeco;       break
+                        case 'charclass':   deco = regexCharClassDeco;   break
+                        case 'quantifier':  deco = regexQuantifierDeco;  break
+                        case 'anchor':      deco = regexAnchorDeco;      break
+                        case 'escape':      deco = regexEscapeDeco;      break
                         case 'alternation': deco = regexAlternationDeco; break
                     }
                     decos.push({ from: item.from, to: item.to, deco })
                 }
 
                 decos.sort((a, b) => a.from - b.from)
-
                 for (const item of decos) {
                     builder.add(item.from, item.to, item.deco)
                 }
@@ -512,10 +522,12 @@
     // Value change listener
     const updateListener = EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-            isInternalUpdate = true
-            value = update.state.doc.toString()
-            onInput?.(value)
-            isInternalUpdate = false
+            // docString() caches the rope → string conversion so subsequent
+            // plugin calls in the same update cycle reuse the same string.
+            const text = docString(update.state.doc)
+            _pendingInternalValue = text
+            value = text
+            onInput?.(text)
         }
     })
 
@@ -539,9 +551,11 @@
             extensions.push(regexHighlighter)
         } else if (lang !== 'plain') {
             // CBS + language-specific highlighting for markdown, html, cbs modes.
-            // cbsTheme supplies Catppuccin Mocha gutter styles and CBS colour rules.
-            // cbsHighlighter handles {{ }} nesting + keyword highlighting (incremental).
-            // markupHighlighter handles XML tags, CSS-in-style, and Markdown.
+            // cbsTheme supplies CBS / markdown / XML / CSS colour rules (no gutter
+            // styling — inline editor follows RisuAI's --risu-* palette).
+            // cbsHighlighter is a SINGLE ViewPlugin that runs every parser
+            // (CBS + CBS keywords + XML + CSS-in-<style> + Markdown) in one pass
+            // per update — see cbsHighlight.ts for rationale.
             // lineNumbers() is added only for cbs mode (macro editing context).
             extensions.push(
                 cbsTheme,
@@ -550,7 +564,6 @@
                     override: [cbsCompletionSource],
                     activateOnTyping: true,
                 }),
-                markupHighlighter,
             )
             if (lang === 'cbs') {
                 extensions.push(lineNumbers())
@@ -568,10 +581,17 @@
 
     // Update editor when value changes externally
     $effect(() => {
-        // Track value explicitly
         const newValue = value ?? ''
 
-        if (view && !isInternalUpdate) {
+        // If this value was just set by the editor itself (via updateListener),
+        // skip — there is no external change to apply.  Reset the sentinel so
+        // that a subsequent identical value written externally is still applied.
+        if (newValue === _pendingInternalValue) {
+            _pendingInternalValue = null
+            return
+        }
+
+        if (view) {
             const currentValue = view.state.doc.toString()
             if (newValue !== currentValue) {
                 view.dispatch({

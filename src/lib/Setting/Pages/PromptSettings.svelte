@@ -1,10 +1,11 @@
 <script lang="ts">
     import { ArrowLeft, PlusIcon, TrashIcon } from "lucide-svelte";
+    import { onDestroy } from "svelte";
     import { language } from "src/lang";
     import PromptDataItem from "src/lib/UI/PromptDataItem.svelte";
     import { tokenizePreset, type PromptItem } from "src/ts/process/prompt";
     import { templateCheck } from "src/ts/process/templates/templateCheck";
-    
+
     import { DBState } from 'src/ts/stores.svelte';
     import Check from "src/lib/UI/GUI/CheckInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -21,6 +22,12 @@
     let warns: string[] = $state([])
     let tokens = $state(0)
     let extokens = $state(0)
+    // _tokenizeReqId must be declared before the initial executeTokenize()
+    // call below — `async function` is hoisted, but `let` is not, and
+    // executeTokenize reads _tokenizeReqId as its first statement.  Keeping
+    // the declaration here (instead of next to executeTokenize) avoids a
+    // Temporal Dead Zone ReferenceError on component setup.
+    let _tokenizeReqId = 0
     executeTokenize(DBState.db.promptTemplate)
   interface Props {
     onGoBack?: () => void;
@@ -30,16 +37,60 @@
 
   let { onGoBack = () => {}, mode = 'independent', subMenu = $bindable(0) }: Props = $props();
 
+    // Monotonic request id protects against out-of-order async completions:
+    // if the user keeps typing through a slow tokenize, only the most
+    // recently issued executeTokenize call is allowed to commit tokens /
+    // extokens.  Older in-flight calls see a mismatched reqId and no-op.
     async function executeTokenize(prest: PromptItem[]){
-        tokens = await tokenizePreset(prest, true)
-        extokens = await tokenizePreset(prest, false)
+        const reqId = ++_tokenizeReqId
+        const nextTokens = await tokenizePreset(prest, true)
+        if (reqId !== _tokenizeReqId) return
+        tokens = nextTokens
+        const nextExtokens = await tokenizePreset(prest, false)
+        if (reqId !== _tokenizeReqId) return
+        extokens = nextExtokens
     }
+
+    // tokenizePreset() iterates the entire prompt template and awaits
+    // tokenizeAccurate() for each item — roughly O(items × text_length).
+    // Before this debounce, every keystroke in any PromptDataItem editor
+    // triggered two full passes (with / without the extension), which on
+    // mobile easily exceeded a frame budget.  300 ms trailing-edge keeps
+    // the token counter visibly responsive while coalescing typing bursts.
+    let _tokenizeTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleTokenize = () => {
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+        _tokenizeTimer = setTimeout(() => {
+            _tokenizeTimer = null
+            executeTokenize(DBState.db.promptTemplate)
+        }, 300)
+    }
+    onDestroy(() => {
+        if (_tokenizeTimer !== null) clearTimeout(_tokenizeTimer)
+    })
 
     $effect.pre(() => {
     warns = templateCheck(DBState.db)
   });
   $effect.pre(() => {
-    executeTokenize(DBState.db.promptTemplate)
+    // Establish reactive deps on every field tokenizePreset reads: its
+    // switch branches on `prompt.type`, and the two branches read
+    // `prompt.text` (plain / jailbreak) or `prompt.innerFormat` (persona /
+    // description / lorebook / postEverything / authornote / memory).
+    // Reading all three per item keeps this dep set aligned with the
+    // tokenizePreset switch cases — if those ever gain a new field, this
+    // read list must be updated too.  Iterating + `void`-ing instead of
+    // JSON.stringify avoids the per-keystroke string allocation for large
+    // templates.
+    const items = DBState.db.promptTemplate
+    if (items) {
+        for (const p of items) {
+            void (p as { type?: string }).type
+            void (p as { text?: string }).text
+            void (p as { innerFormat?: string }).innerFormat
+        }
+    }
+    scheduleTokenize()
   });
 </script>
 {#if mode === 'independent'}

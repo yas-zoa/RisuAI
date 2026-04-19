@@ -12,7 +12,7 @@
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
     import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, markupHighlighter } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme, docString } from 'src/ts/gui/cbsHighlight'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -67,7 +67,17 @@
     let memos = $state<CanvasMemoItem[]>([])
     let wasOpen = $state(false)
     /** Prevents the external $effect from re-dispatching CM-initiated changes */
-    let isInternalUpdate = false
+    /**
+     * Tracks the last text that was pushed into `draft` from inside the
+     * editor (via the updateListener).  The `syncDraftToEditor` effect
+     * compares its scheduled `draft` against this value to decide whether
+     * the incoming change was editor-initiated (skip — nothing to do) vs.
+     * externally-initiated (dispatch back into the editor).  A sync boolean
+     * flag doesn't work here because Svelte 5 $effect flushes after the
+     * updateListener returns, so the flag would always read false when the
+     * effect runs.
+     */
+    let _pendingInternalValue: string | null = null
 
     // ── Toast ─────────────────────────────────────────────────────────────────
     let toastMsg = $state('')
@@ -147,6 +157,32 @@
         provide: f => EditorView.decorations.from(f)
     })
 
+    /**
+     * Lazy-install highlightField only when actually needed (user adds a
+     * highlight, or we're restoring previously-saved highlights).  Keeping
+     * the StateField out of the default extension list means the per-
+     * transaction `deco.map(tr.changes)` doesn't run while the user is
+     * only typing — which is the dominant usage mode.  The field is added
+     * to the running EditorState at most once per view via
+     * StateEffect.appendConfig.  Subsequent calls to `ensureHighlightField`
+     * are no-ops thanks to the `hasHighlightField` check.
+     */
+    const hasHighlightField = (): boolean => {
+        if (!view) return false
+        try {
+            view.state.field(highlightField)
+            return true
+        } catch {
+            return false
+        }
+    }
+    const ensureHighlightField = (): void => {
+        if (!view || hasHighlightField()) return
+        view.dispatch({
+            effects: StateEffect.appendConfig.of([highlightField])
+        })
+    }
+
     function mergeRanges(ranges: HighlightRange[]): HighlightRange[] {
         if (!ranges.length) return []
         const sorted = [...ranges].sort((a, b) => a.from - b.from)
@@ -162,9 +198,10 @@
         return merged
     }
 
-    /** Collect current highlight ranges from the StateField */
+    /** Collect current highlight ranges from the StateField (empty when the
+     *  field hasn't been installed — see lazy-load strategy above). */
     const getHighlights = (): HighlightRange[] => {
-        if (!view) return []
+        if (!view || !hasHighlightField()) return []
         const ranges: HighlightRange[] = []
         view.state.field(highlightField).between(0, view.state.doc.length, (from, to) => {
             ranges.push({ from, to })
@@ -220,10 +257,14 @@
             drawSelection(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             EditorView.lineWrapping,
-            // cbsTheme: Catppuccin Mocha gutter styling + CBS bracket/keyword colours.
-            // Applied before the component-local theme so local overrides win for
-            // search-panel, user-highlight, etc.
+            // cbsTheme: CBS bracket/keyword + markup colour rules (shared with
+            // inline editor).  catppuccinGutterTheme: Mocha-palette gutter rules,
+            // popup-only — inline editor uses RisuAI's --risu-* theme and must
+            // NOT receive this.  Both applied before the component-local theme
+            // so local overrides (search-panel, user-highlight, modal chrome)
+            // still win downstream.
             cbsTheme,
+            catppuccinGutterTheme,
             // Fix: fill fixed-height flex container and let CM scroll internally
             EditorView.theme({
                 '&': { height: '100%' },
@@ -284,13 +325,17 @@
                 },
             }),
             search({ top: false }),  // panel appears at bottom
-            highlightField,
+            // NOTE: highlightField is intentionally NOT in the default extension
+            // list — it's installed on demand via ensureHighlightField() when
+            // the user actually adds a highlight or restores saved ones.  Keeps
+            // the per-transaction StateField.update cost out of the typing path
+            // for users who never use the highlight feature.
             keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
             EditorView.updateListener.of((update) => {
                 if (!update.docChanged) return
-                isInternalUpdate = true
-                draft = update.state.doc.toString()
-                isInternalUpdate = false
+                const text = docString(update.state.doc)
+                _pendingInternalValue = text
+                draft = text
                 // Debounce highlight persistence so rapid typing doesn't
                 // hammer localStorage on every keystroke.
                 if (_highlightSaveTimer !== null) clearTimeout(_highlightSaveTimer)
@@ -309,13 +354,11 @@
             extensions.push(html())
         }
 
-        // CBS bracket/content/keyword highlighting for all non-plain, non-regex modes.
-        // cbsHighlighter is stateless as a ViewPlugin spec; each EditorView instance
-        // maintains its own plugin state (DecorationSet + incremental cache).
-        // markupHighlighter adds XML tag nesting, CSS-in-<style>, and Markdown
-        // decorations; it coexists safely with cbsHighlighter (independent DecorationSets).
+        // Single combined ViewPlugin — handles CBS brackets/content/keywords +
+        // XML tag nesting + CSS-in-<style> + Markdown in one pass.  See
+        // cbsHighlight.ts for the rationale behind the single-plugin design.
         if (lang !== 'plain' && lang !== 'regex') {
-            extensions.push(cbsHighlighter, markupHighlighter)
+            extensions.push(cbsHighlighter)
         }
 
         return extensions
@@ -340,7 +383,9 @@
             parent: editorHost
         })
 
-        // Restore persisted highlights
+        // Restore persisted highlights — install the field lazily, only when
+        // there are actual highlights to restore.  No saved highlights means
+        // no per-transaction StateField work at all for this session.
         const saved = loadHighlights(title)
         if (saved.length > 0 && view) {
             const docLen = view.state.doc.length
@@ -348,6 +393,7 @@
                 .filter(r => r.from < docLen && r.to <= docLen)
                 .map(r => addHighlightEffect.of(r))
             if (effects.length) {
+                ensureHighlightField()
                 view.dispatch({ effects })
                 showToast(`저장된 하이라이트 ${effects.length}개 복원`)
             }
@@ -355,8 +401,16 @@
     }
 
     const syncDraftToEditor = () => {
-        if (!view || isInternalUpdate) return
-        const current = view.state.doc.toString()
+        if (!view) return
+        // Editor-initiated change: updateListener just set _pendingInternalValue
+        // to this same string, so there's nothing to dispatch back.  Early-exit
+        // avoids the O(n) docString call and a redundant view.dispatch.
+        if (draft === _pendingInternalValue) {
+            _pendingInternalValue = null
+            return
+        }
+        _pendingInternalValue = null
+        const current = docString(view.state.doc)
         if (current === draft) return
         const selection = view.state.selection.main
         const nextLength = draft.length
@@ -399,6 +453,7 @@
             showToast('하이라이트할 텍스트를 선택해주세요')
             return
         }
+        ensureHighlightField()
         view.dispatch({ effects: [addHighlightEffect.of({ from: sel.from, to: sel.to })] })
         saveHighlights(title, getHighlights())
         showToast('하이라이트가 추가되었습니다')

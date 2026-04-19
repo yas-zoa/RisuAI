@@ -2,6 +2,16 @@
 
 const APP_CACHE = 'risuAppShell-v1'
 
+/**
+ * Clones a Request with credentials forced to 'same-origin'.
+ * Using 'include' would trigger CORS preflight on cross-origin requests.
+ * @param {Request} request
+ * @returns {Request}
+ */
+function withSameOriginCredentials(request) {
+    return new Request(request, { credentials: 'same-origin' })
+}
+
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(APP_CACHE)
@@ -24,6 +34,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url)
+    const isSameOrigin = url.origin === self.location.origin
     const path = url.pathname.split('/')
     if(path[1] === 'sw'){
         try {
@@ -113,8 +124,8 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             caches.match(event.request).then((cached) => {
                 if(cached) return cached
-                return fetch(event.request).then((response) => {
-                    if(response.ok){
+                return fetch(withSameOriginCredentials(event.request)).then((response) => {
+                    if(response.ok && !response.redirected){
                         caches.open(APP_CACHE)
                             .then((cache) => cache.put(event.request, response.clone()))
                     }
@@ -127,10 +138,13 @@ self.addEventListener('fetch', (event) => {
 
     // Network-first for navigation requests, fall back to cached app shell
     if(event.request.mode === 'navigate'){
+        if(!isSameOrigin){
+            return
+        }
         event.respondWith(
-            fetch(event.request)
+            fetch(withSameOriginCredentials(event.request))
                 .then((response) => {
-                    if(response.ok){
+                    if(response.ok && !response.redirected){
                         caches.open(APP_CACHE)
                             .then((cache) => cache.put(event.request, response.clone()))
                     }
