@@ -69,7 +69,7 @@ You can get detailed information on https://github.com/kwaroran/RisuAI/wiki (Wor
 - 사용자 지정 하이라이트: 텍스트 구간을 직접 표시하고 다음 하이라이트로 이동하거나 전부 해제 가능 (하이라이트는 문서별로 저장)
 - 본문 전체 복사 버튼 + 결과 토스트 알림
 - ESC 처리, aria-label 등 키보드·스크린리더 접근성
-- 팝업 전용 Catppuccin Mocha 거터 테마
+- 팝업 전용 [Catppuccin Mocha](https://github.com/catppuccin/website/blob/main/LICENSE) 거터 테마
 
 ### 사이드바 토글 타입 확장
 
