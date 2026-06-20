@@ -146,3 +146,33 @@ node server/node/server.cjs
 
 > 빌드 중 메모리 부족(OOM)이 나면 `--max-old-space-size` 값을 기기 RAM에 맞춰 조정하세요.
 > 포트는 `PORT` 환경변수로 바꿀 수 있습니다 (기본 6001).
+
+### 기존 버전에서 업데이트
+
+RisuAI 본체 데이터(캐릭터·챗·설정)는 **브라우저(IndexedDB)**에 있어 서버 교체와 무관하게 보존됩니다. 디스크 `save/` 폴더는 서버 계정·동기화를 쓸 때만 채워지며, 아래 방법은 그것도 보존합니다.
+
+**Docker** — 이미지만 새로 받아 재기동:
+```bash
+docker compose pull && docker compose up -d
+```
+`save/`는 명명 볼륨(`risuai-save`)에 있어 컨테이너를 재생성해도 유지됩니다.
+
+**Termux (prebuilt)** — 새 tar.gz를 **기존 폴더 위에 덮어** 풉니다:
+```bash
+cd ~                                        # risuai-server 의 상위 폴더에서
+tar xzf risuai-server-termux-새버전.tar.gz   # dist·server 만 갱신됨
+cd risuai-server
+npm install express fast-json-patch node-html-parser fflate msgpackr
+node server/node/server.cjs
+```
+`save/`·`node_modules/`는 아카이브에 없어 덮어쓰기로도 지워지지 않습니다. 단:
+- `risuai-server` **안에서** 풀면 폴더가 중첩되니, 반드시 **상위 폴더에서** 풀거나 `--strip-components=1` 을 쓰세요.
+- 옛 `dist/` 에셋 잔여물이 신경 쓰이면 풀기 전에 `rm -rf risuai-server/dist` (형제 폴더인 `save/`는 안 지워집니다).
+- 걱정되면 미리 백업: `cp -r risuai-server/save ~/risu-save-backup`
+
+**Termux (소스 빌드)** — 받아서 다시 빌드:
+```bash
+cd RisuAI && git pull
+NODE_OPTIONS="--max-old-space-size=6144" node node_modules/vite/bin/vite.js build
+node server/node/server.cjs
+```
