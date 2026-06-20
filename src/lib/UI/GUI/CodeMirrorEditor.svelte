@@ -7,8 +7,10 @@
     import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
     import { textAreaSize } from 'src/ts/gui/guisize'
     import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
+    import { isMobile } from 'src/ts/globalApi.svelte'
     import { cbsHighlighter, cbsTheme, docString } from 'src/ts/gui/cbsHighlight'
     import CanvasEditorModal from './CanvasEditorModal.svelte'
+    import { MaximizeIcon } from 'lucide-svelte'
 
     const minimalSetup = [
         highlightSpecialChars(),
@@ -26,6 +28,8 @@
         height?: '20' | '24' | '28' | '32' | '36' | '40' | 'full' | 'default'
         onInput?: (value: string) => void
         enableCanvasPopup?: boolean
+        /** Stable per-space id forwarded to the canvas popup (highlights etc.). */
+        spaceKey?: string
     }
 
     let {
@@ -35,7 +39,8 @@
         class: className = '',
         height = 'default',
         onInput,
-        enableCanvasPopup = true
+        enableCanvasPopup = true,
+        spaceKey = undefined
     }: Props = $props()
 
     let editorEl: HTMLDivElement
@@ -53,8 +58,21 @@
     let _pendingInternalValue: string | null = null
     let canvasOpen = $state(false)
     let canvasTitle = $state('텍스트 편집')
+    let focused = $state(false)
+    let canvasEligible = $state(false)
+
+    // Mobile-only explicit canvas entry (long-press trigger disabled on touch).
+    // Button visibility is gated by canvasEligible, so no re-check needed here.
+    const openCanvasFromButton = () => {
+        canvasTitle = placeholder || '텍스트 편집'
+        canvasOpen = true
+    }
 
     const openCanvasEditor = (e: MouseEvent) => {
+        // On touch devices, contextmenu fires on long-press — the gesture used
+        // to select text for copy.  Don't hijack it; let native selection/copy
+        // proceed.  (Canvas stays available on desktop right-click.)
+        if (isMobile) return
         const target = e.currentTarget as HTMLElement | null
         if (!target || !enableCanvasPopup || !shouldOpenCanvasPopupTarget(target, 60)) return
         e.preventDefault()
@@ -625,8 +643,14 @@
 <div
     bind:this={editorEl}
     oncontextmenu={openCanvasEditor}
+    onfocusin={() => {
+        focused = true
+        // Same scope gate as the popup: never show on chat / short fields.
+        canvasEligible = shouldOpenCanvasPopupTarget(editorEl, 60)
+    }}
+    onfocusout={() => { focused = false }}
     role="presentation"
-    class="w-full border border-selected rounded-md overflow-hidden {className}"
+    class="relative w-full border border-selected rounded-md overflow-hidden {className}"
     class:h-20={!hasCustomHeight && (height === '20' || (height === 'default' && $textAreaSize === -5))}
     class:h-24={!hasCustomHeight && (height === '24' || (height === 'default' && $textAreaSize === -4))}
     class:h-28={!hasCustomHeight && (height === '28' || (height === 'default' && $textAreaSize === -3))}
@@ -650,13 +674,27 @@
     class:min-h-64={!hasCustomHeight && height === 'default' && $textAreaSize === 3}
     class:min-h-72={!hasCustomHeight && height === 'default' && $textAreaSize === 4}
     class:min-h-80={!hasCustomHeight && height === 'default' && $textAreaSize === 5}
-></div>
+>
+    {#if isMobile && focused && canvasEligible}
+        <!-- Mobile-only explicit canvas entry (long-press disabled on touch).
+             Inside editorEl so it anchors to the editor's border box, not the
+             margin-including outer wrapper (which sat the button too high). -->
+        <button
+            type="button"
+            class="absolute top-1 right-1 z-[60] w-7 h-7 flex items-center justify-center rounded bg-bgcolor/80 border border-selected text-textcolor2"
+            aria-label="확대 편집"
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={() => openCanvasFromButton()}
+        ><MaximizeIcon size={15} /></button>
+    {/if}
+</div>
 
 <CanvasEditorModal
     open={canvasOpen}
     value={value ?? ''}
     title={canvasTitle}
     lang={lang}
+    spaceKey={spaceKey}
     onClose={() => {
         canvasOpen = false
     }}

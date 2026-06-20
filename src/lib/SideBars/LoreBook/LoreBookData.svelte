@@ -298,7 +298,7 @@
                 <NumberInput size="sm" bind:value={value.insertorder} min={0} max={1000}/>
             {/if}
             <span class="text-textcolor mt-4 mb-2">{language.prompt}</span>
-            <CodeMirrorEditor bind:value={value.content} height="default" />
+            <CodeMirrorEditor bind:value={value.content} height="default" spaceKey={`lore:${value.id ?? `${idgroup}:${idx}`}:content`} />
             <span class="text-textcolor2 mt-2 mb-2 text-sm">{tokens} {language.tokens}</span>
             <div class="flex items-center mt-4">
                 <Check bind:check={value.alwaysActive} name={language.alwaysActive}/>

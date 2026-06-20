@@ -3,38 +3,17 @@
     import { XIcon } from 'lucide-svelte'
     import {
         EditorView, keymap, lineNumbers, highlightSpecialChars, drawSelection,
-        placeholder as cmPlaceholder, Decoration, type DecorationSet
+        placeholder as cmPlaceholder
     } from '@codemirror/view'
-    import { EditorState, StateField, StateEffect, RangeSetBuilder } from '@codemirror/state'
-    import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
+    import { EditorState } from '@codemirror/state'
+    import { history, defaultKeymap, historyKeymap, undo, redo, selectAll } from '@codemirror/commands'
     import { markdown } from '@codemirror/lang-markdown'
     import { html } from '@codemirror/lang-html'
     import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
     import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen } from '@codemirror/search'
-    import { generateCanvasMemoId } from 'src/ts/gui/canvasPopup'
-    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme, docString } from 'src/ts/gui/cbsHighlight'
+    import { cbsHighlighter, cbsTheme, catppuccinGutterTheme } from 'src/ts/gui/cbsHighlight'
+    import { canvasStorage, type CanvasMemo } from 'src/ts/gui/canvasStorage'
     import CanvasMemoPanel from './CanvasMemoPanel.svelte'
-
-    // ── Types ────────────────────────────────────────────────────────────────
-    interface CanvasMemoItem {
-        id: number
-        name: string
-        content: string
-        open: boolean
-    }
-
-    interface HighlightRange {
-        from: number
-        to: number
-    }
-
-    /** Shape of an unvalidated memo object read from localStorage. */
-    interface RawMemo {
-        id?: unknown
-        name?: unknown
-        content?: unknown
-        open?: unknown
-    }
 
     // ── Props ─────────────────────────────────────────────────────────────────
     interface Props {
@@ -42,6 +21,15 @@
         value: string
         title?: string
         lang?: 'markdown' | 'html' | 'plain' | 'regex' | 'cbs'
+        /**
+         * Stable, semantic identifier for the editing space (e.g.
+         * `char:{id}:desc`).  RESERVED for Phase 2 memo scoping — currently has
+         * no active consumer (the per-space highlight feature that originally
+         * used it was dropped; manual marks are a weak proxy for structural
+         * navigation — see docs/canvas-editor-plan.md).  Threaded from call
+         * sites now so memo scoping can switch on later without touching them.
+         */
+        spaceKey?: string
         onSave?: (next: string) => void
         onClose?: () => void
     }
@@ -51,40 +39,27 @@
         value = '',
         title = '텍스트 편집',
         lang = 'markdown',
+        spaceKey = undefined,
         onSave = () => {},
         onClose = () => {}
     }: Props = $props()
 
-    // ── Memo storage ──────────────────────────────────────────────────────────
-    const MEMO_KEY = 'te-memos'
-    const LEGACY_MEMO_KEY = 'te-shared-memo'
-
     // ── CM editor state ───────────────────────────────────────────────────────
+    // Isolation model: while the modal is open the CM view is the single source
+    // of truth.  There is no `draft` mirror and no value↔draft↔CM sync effect —
+    // the document is seeded once on open (from `value`) and read back once on
+    // save.  External `value` changes are intentionally ignored while open
+    // (the modal is a transactional editing session — H2).
     let editorHost: HTMLDivElement | undefined = $state()
     let view: EditorView | null = null
-    let draft = $state('')
     let memoOpen = $state(false)
-    let memos = $state<CanvasMemoItem[]>([])
+    let memos = $state<CanvasMemo[]>([])
     let wasOpen = $state(false)
-    /** Prevents the external $effect from re-dispatching CM-initiated changes */
-    /**
-     * Tracks the last text that was pushed into `draft` from inside the
-     * editor (via the updateListener).  The `syncDraftToEditor` effect
-     * compares its scheduled `draft` against this value to decide whether
-     * the incoming change was editor-initiated (skip — nothing to do) vs.
-     * externally-initiated (dispatch back into the editor).  A sync boolean
-     * flag doesn't work here because Svelte 5 $effect flushes after the
-     * updateListener returns, so the flag would always read false when the
-     * effect runs.
-     */
-    let _pendingInternalValue: string | null = null
 
     // ── Toast ─────────────────────────────────────────────────────────────────
     let toastMsg = $state('')
     let toastVisible = $state(false)
     let _toastTimer: ReturnType<typeof setTimeout> | null = null
-    /** Debounce timer for persisting highlights to localStorage on each doc change */
-    let _highlightSaveTimer: ReturnType<typeof setTimeout> | null = null
 
     const showToast = (msg: string) => {
         if (_toastTimer !== null) clearTimeout(_toastTimer)
@@ -96,156 +71,17 @@
         }, 2000)
     }
 
-    // ── User highlight (persisted per title) ──────────────────────────────────
-    const HIGHLIGHT_STORE_KEY = 'te-highlights-store'
-
-    const loadHighlights = (titleKey: string): HighlightRange[] => {
-        if (typeof localStorage === 'undefined') return []
-        try {
-            const raw = localStorage.getItem(HIGHLIGHT_STORE_KEY)
-            if (!raw) return []
-            const store = JSON.parse(raw) as Record<string, unknown>
-            const arr = store[titleKey]
-            if (!Array.isArray(arr)) return []
-            return arr
-                .filter((r): r is HighlightRange => r && typeof r.from === 'number' && typeof r.to === 'number')
-        } catch { return [] }
-    }
-
-    const saveHighlights = (titleKey: string, ranges: HighlightRange[]) => {
-        if (typeof localStorage === 'undefined') return
-        try {
-            const raw = localStorage.getItem(HIGHLIGHT_STORE_KEY)
-            const store: Record<string, HighlightRange[]> = raw ? JSON.parse(raw) : {}
-            store[titleKey] = ranges
-            localStorage.setItem(HIGHLIGHT_STORE_KEY, JSON.stringify(store))
-        } catch { /* ignore */ }
-    }
-
-    // StateEffect / StateField for user highlights
-    const addHighlightEffect = StateEffect.define<HighlightRange>()
-    const clearHighlightsEffect = StateEffect.define<null>()
-
-    const highlightMark = Decoration.mark({ class: 'cm-user-highlight' })
-
-    const highlightField = StateField.define<DecorationSet>({
-        create: () => Decoration.none,
-        update(deco, tr) {
-            // Map existing decorations through document changes
-            deco = deco.map(tr.changes)
-            for (const e of tr.effects) {
-                if (e.is(addHighlightEffect)) {
-                    const from = Math.min(e.value.from, e.value.to)
-                    const to = Math.max(e.value.from, e.value.to)
-                    if (from < to) {
-                        // Merge the new range into existing ones, then rebuild sorted.
-                        const existing: HighlightRange[] = []
-                        deco.between(0, tr.newDoc.length, (f, t) => { existing.push({ from: f, to: t }) })
-                        existing.push({ from, to })
-                        // Sort & merge overlapping
-                        const merged = mergeRanges(existing)
-                        const b2 = new RangeSetBuilder<Decoration>()
-                        for (const r of merged) b2.add(r.from, r.to, highlightMark)
-                        deco = b2.finish()
-                    }
-                } else if (e.is(clearHighlightsEffect)) {
-                    deco = Decoration.none
-                }
-            }
-            return deco
-        },
-        provide: f => EditorView.decorations.from(f)
-    })
-
-    /**
-     * Lazy-install highlightField only when actually needed (user adds a
-     * highlight, or we're restoring previously-saved highlights).  Keeping
-     * the StateField out of the default extension list means the per-
-     * transaction `deco.map(tr.changes)` doesn't run while the user is
-     * only typing — which is the dominant usage mode.  The field is added
-     * to the running EditorState at most once per view via
-     * StateEffect.appendConfig.  Subsequent calls to `ensureHighlightField`
-     * are no-ops thanks to the `hasHighlightField` check.
-     */
-    const hasHighlightField = (): boolean => {
-        if (!view) return false
-        try {
-            view.state.field(highlightField)
-            return true
-        } catch {
-            return false
-        }
-    }
-    const ensureHighlightField = (): void => {
-        if (!view || hasHighlightField()) return
-        view.dispatch({
-            effects: StateEffect.appendConfig.of([highlightField])
-        })
-    }
-
-    function mergeRanges(ranges: HighlightRange[]): HighlightRange[] {
-        if (!ranges.length) return []
-        const sorted = [...ranges].sort((a, b) => a.from - b.from)
-        const merged: HighlightRange[] = [sorted[0]]
-        for (let i = 1; i < sorted.length; i++) {
-            const last = merged[merged.length - 1]
-            if (sorted[i].from <= last.to) {
-                last.to = Math.max(last.to, sorted[i].to)
-            } else {
-                merged.push(sorted[i])
-            }
-        }
-        return merged
-    }
-
-    /** Collect current highlight ranges from the StateField (empty when the
-     *  field hasn't been installed — see lazy-load strategy above). */
-    const getHighlights = (): HighlightRange[] => {
-        if (!view || !hasHighlightField()) return []
-        const ranges: HighlightRange[] = []
-        view.state.field(highlightField).between(0, view.state.doc.length, (from, to) => {
-            ranges.push({ from, to })
-        })
-        return ranges
-    }
-
     // ── Memo helpers ──────────────────────────────────────────────────────────
-    const loadMemos = (): CanvasMemoItem[] => {
-        const fallback: CanvasMemoItem[] = [{ id: generateCanvasMemoId(), name: '', content: '', open: true }]
-        if (typeof localStorage === 'undefined') return fallback
-        try {
-            const parsed = JSON.parse(localStorage.getItem(MEMO_KEY) ?? '[]')
-            if (Array.isArray(parsed) && parsed.length > 0) {
-                const sanitized = parsed
-                    .map((memo): CanvasMemoItem | null => {
-                        if (!memo || typeof memo !== 'object') return null
-                        const r = memo as RawMemo
-                        const maybeId = Number(r.id)
-                        const id = Number.isFinite(maybeId)
-                            ? maybeId
-                            : (console.warn('[CanvasEditorModal] Invalid memo ID in storage, regenerating:', r.id), generateCanvasMemoId())
-                        const name = typeof r.name === 'string' ? r.name : ''
-                        const content = typeof r.content === 'string' ? r.content : ''
-                        const open = r.open !== false
-                        return { id, name, content, open }
-                    })
-                    .filter((memo): memo is CanvasMemoItem => memo !== null)
-                if (sanitized.length > 0) return sanitized
-            }
-            const legacyMemo = localStorage.getItem(LEGACY_MEMO_KEY)
-            if (legacyMemo) {
-                return [{ id: generateCanvasMemoId(), name: '', content: legacyMemo, open: true }]
-            }
-        } catch (error) {
-            console.error(error)
-        }
-        return fallback
-    }
-
-    const saveMemos = (next: CanvasMemoItem[]) => {
+    // Load/persist go through the storage service (canvasStorage); the modal
+    // only owns the in-memory `memos` state.  persistMemos surfaces a storage
+    // failure (quota etc.) as a toast instead of throwing into the handler (M3).
+    const persistMemos = (next: CanvasMemo[]) => {
         memos = next
-        if (typeof localStorage === 'undefined') return
-        localStorage.setItem(MEMO_KEY, JSON.stringify(next))
+        try {
+            canvasStorage.saveMemos(next)
+        } catch {
+            showToast('메모 저장에 실패했습니다 (저장 공간 부족)')
+        }
     }
 
     // ── CM extensions ─────────────────────────────────────────────────────────
@@ -261,7 +97,7 @@
             // inline editor).  catppuccinGutterTheme: Mocha-palette gutter rules,
             // popup-only — inline editor uses RisuAI's --risu-* theme and must
             // NOT receive this.  Both applied before the component-local theme
-            // so local overrides (search-panel, user-highlight, modal chrome)
+            // so local overrides (search-panel, modal chrome)
             // still win downstream.
             cbsTheme,
             catppuccinGutterTheme,
@@ -309,12 +145,6 @@
                     padding: '2px 6px',
                     fontSize: '12px',
                 },
-                // User highlight mark
-                '.cm-user-highlight': {
-                    background: 'rgba(255, 200, 0, 0.45)',
-                    borderRadius: '2px',
-                    boxShadow: '0 0 0 1px rgba(255, 200, 0, 0.4)',
-                },
                 // Search match highlight
                 '.cm-searchMatch': {
                     background: 'rgba(255, 200, 0, 0.3)',
@@ -325,26 +155,7 @@
                 },
             }),
             search({ top: false }),  // panel appears at bottom
-            // NOTE: highlightField is intentionally NOT in the default extension
-            // list — it's installed on demand via ensureHighlightField() when
-            // the user actually adds a highlight or restores saved ones.  Keeps
-            // the per-transaction StateField.update cost out of the typing path
-            // for users who never use the highlight feature.
             keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
-            EditorView.updateListener.of((update) => {
-                if (!update.docChanged) return
-                const text = docString(update.state.doc)
-                _pendingInternalValue = text
-                draft = text
-                // Debounce highlight persistence so rapid typing doesn't
-                // hammer localStorage on every keystroke.
-                if (_highlightSaveTimer !== null) clearTimeout(_highlightSaveTimer)
-                _highlightSaveTimer = setTimeout(() => {
-                    // Clear before saving so onDestroy can detect outstanding work correctly.
-                    _highlightSaveTimer = null
-                    if (view) saveHighlights(title, getHighlights())
-                }, 500)
-            }),
             cmPlaceholder('내용을 입력하세요...')
         ]
 
@@ -377,61 +188,51 @@
         destroyView()
         view = new EditorView({
             state: EditorState.create({
-                doc: draft,
+                // Seed the document once from the incoming value (isolation —
+                // the view is the source of truth from here until save).
+                doc: value ?? '',
                 extensions: getExtensions()
             }),
             parent: editorHost
         })
-
-        // Restore persisted highlights — install the field lazily, only when
-        // there are actual highlights to restore.  No saved highlights means
-        // no per-transaction StateField work at all for this session.
-        const saved = loadHighlights(title)
-        if (saved.length > 0 && view) {
-            const docLen = view.state.doc.length
-            const effects = saved
-                .filter(r => r.from < docLen && r.to <= docLen)
-                .map(r => addHighlightEffect.of(r))
-            if (effects.length) {
-                ensureHighlightField()
-                view.dispatch({ effects })
-                showToast(`저장된 하이라이트 ${effects.length}개 복원`)
-            }
-        }
-    }
-
-    const syncDraftToEditor = () => {
-        if (!view) return
-        // Editor-initiated change: updateListener just set _pendingInternalValue
-        // to this same string, so there's nothing to dispatch back.  Early-exit
-        // avoids the O(n) docString call and a redundant view.dispatch.
-        if (draft === _pendingInternalValue) {
-            _pendingInternalValue = null
-            return
-        }
-        _pendingInternalValue = null
-        const current = docString(view.state.doc)
-        if (current === draft) return
-        const selection = view.state.selection.main
-        const nextLength = draft.length
-        view.dispatch({
-            changes: { from: 0, to: current.length, insert: draft },
-            selection: {
-                anchor: Math.min(selection.anchor, nextLength),
-                head: Math.min(selection.head, nextLength)
-            }
-        })
     }
 
     // ── Toolbar actions ───────────────────────────────────────────────────────
+    // All toolbar actions dispatch directly into the view (the source of
+    // truth).  None route through a `draft` mirror — that indirection was the
+    // root of the toolbar-not-reflected bug (H1/H3).
     const removeBoldMarkers = () => {
-        draft = draft.replace(/\*\*(.+?)\*\*/gs, '$1')
+        if (!view) return
+        const current = view.state.doc.toString()
+        const cleaned = current.replace(/\*\*(.+?)\*\*/gs, '$1')
+        if (cleaned === current) return
+        view.dispatch({ changes: { from: 0, to: current.length, insert: cleaned } })
     }
 
     const copyAll = async () => {
+        if (!view) return
         try {
-            await navigator.clipboard.writeText(draft)
+            await navigator.clipboard.writeText(view.state.doc.toString())
             showToast('전체 텍스트가 복사되었습니다')
+        } catch {
+            showToast('클립보드 접근 권한이 필요합니다')
+        }
+    }
+
+    // thin wrappers over CM-native commands (history/selection already loaded —
+    // zero standing cost).  Essential on mobile, which has no Ctrl+Z/A/V.
+    const handleUndo = () => { if (view) undo(view) }
+    const handleRedo = () => { if (view) redo(view) }
+    const handleSelectAll = () => { if (view) selectAll(view) }
+    const handlePaste = async () => {
+        if (!view) return
+        try {
+            const text = await navigator.clipboard.readText()
+            const { from, to } = view.state.selection.main
+            view.dispatch({
+                changes: { from, to, insert: text },
+                selection: { anchor: from + text.length }
+            })
         } catch {
             showToast('클립보드 접근 권한이 필요합니다')
         }
@@ -446,63 +247,23 @@
         }
     }
 
-    const addHighlight = () => {
-        if (!view) return
-        const sel = view.state.selection.main
-        if (sel.from === sel.to) {
-            showToast('하이라이트할 텍스트를 선택해주세요')
-            return
-        }
-        ensureHighlightField()
-        view.dispatch({ effects: [addHighlightEffect.of({ from: sel.from, to: sel.to })] })
-        saveHighlights(title, getHighlights())
-        showToast('하이라이트가 추가되었습니다')
-    }
-
-    const gotoHighlight = () => {
-        if (!view) return
-        const ranges = getHighlights()
-        if (ranges.length === 0) {
-            showToast('하이라이트가 없습니다')
-            return
-        }
-        const currentPos = view.state.selection.main.from
-        // Find the next highlight after current cursor, wrapping around
-        const sorted = [...ranges].sort((a, b) => a.from - b.from)
-        const next = sorted.find(r => r.from > currentPos) ?? sorted[0]
-        view.dispatch({
-            selection: { anchor: next.from, head: next.to },
-            scrollIntoView: true
-        })
-        const idx = sorted.indexOf(next)
-        showToast(`하이라이트 ${idx + 1}/${sorted.length}로 이동`)
-    }
-
-    const clearHighlights = () => {
-        if (!view) return
-        view.dispatch({ effects: [clearHighlightsEffect.of(null)] })
-        saveHighlights(title, [])
-        showToast('하이라이트가 초기화되었습니다')
-    }
-
     const insertMemo = (text: string) => {
-        if (!text) return
-        if (view) {
-            const sel = view.state.selection.main
-            const from = Math.min(sel.from, sel.to)
-            const to = Math.max(sel.from, sel.to)
-            view.dispatch({
-                changes: { from, to, insert: text },
-                selection: { anchor: from + text.length }
-            })
-            draft = view.state.doc.toString()
-            return
-        }
-        draft = draft.length > 0 ? `${draft}\n${text}` : text
+        // Isolation: insert at the cursor via a view dispatch.  No view means
+        // the modal isn't open — nothing to insert into (the old `draft`
+        // fallback existed only to feed the removed sync effect).
+        if (!text || !view) return
+        const sel = view.state.selection.main
+        const from = Math.min(sel.from, sel.to)
+        const to = Math.max(sel.from, sel.to)
+        view.dispatch({
+            changes: { from, to, insert: text },
+            selection: { anchor: from + text.length }
+        })
     }
 
     const saveAndClose = () => {
-        onSave(draft)
+        // Read the document back from the view exactly once, on save.
+        onSave(view ? view.state.doc.toString() : (value ?? ''))
         onClose()
     }
 
@@ -510,17 +271,13 @@
     $effect(() => {
         if (open && !wasOpen) {
             wasOpen = true
-            draft = value ?? ''
-            memos = loadMemos()
+            memos = canvasStorage.loadMemos()
+            // createView seeds the document from `value` directly.
             createView()
         } else if (!open && wasOpen) {
             wasOpen = false
             destroyView()
         }
-    })
-
-    $effect(() => {
-        syncDraftToEditor()
     })
 
     $effect(() => {
@@ -557,12 +314,6 @@
     })
 
     onDestroy(() => {
-        // Flush any pending highlight save before the view is destroyed.
-        if (_highlightSaveTimer !== null) {
-            clearTimeout(_highlightSaveTimer)
-            _highlightSaveTimer = null
-            if (view) saveHighlights(title, getHighlights())
-        }
         destroyView()
         if (_toastTimer !== null) clearTimeout(_toastTimer)
     })
@@ -590,11 +341,12 @@
                 <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={copyAll}>전체 복사</button>
                 <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={removeBoldMarkers}>MD 정리</button>
                 <span class="w-px h-4 bg-selected"></span>
-                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={toggleSearch}>검색 (Ctrl+F)</button>
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={handleUndo}>실행취소</button>
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={handleRedo}>다시실행</button>
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={handlePaste}>붙여넣기</button>
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={handleSelectAll}>전체선택</button>
                 <span class="w-px h-4 bg-selected"></span>
-                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={addHighlight}>하이라이트</button>
-                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={gotoHighlight}>이동</button>
-                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={clearHighlights}>초기화</button>
+                <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" onclick={toggleSearch}>검색 (Ctrl+F)</button>
                 <span class="w-px h-4 bg-selected"></span>
                 <button class="px-2 py-1 rounded border border-selected text-xs hover:bg-selected" class:bg-selected={memoOpen} onclick={() => {
                     memoOpen = !memoOpen
@@ -606,7 +358,7 @@
                     <div bind:this={editorHost} class="flex-1 min-h-0 border border-selected rounded-md overflow-hidden"></div>
                 </div>
                 {#if memoOpen}
-                    <CanvasMemoPanel memos={memos} onChange={saveMemos} onInsert={insertMemo} />
+                    <CanvasMemoPanel memos={memos} onChange={persistMemos} onInsert={insertMemo} />
                 {/if}
             </div>
 

@@ -197,15 +197,15 @@
         <OptionInput value="assistant">assistant</OptionInput>
     </SelectInput>
     <span class="text-textcolor mt-4">{language.customPromptTemplateToggle} <Help key='customPromptTemplateToggle' /></span>
-    <CodeMirrorEditor bind:value={DBState.db.customPromptTemplateToggle} class="my-2 h-[120px]" />
+    <CodeMirrorEditor bind:value={DBState.db.customPromptTemplateToggle} class="my-2 h-[120px]" spaceKey={`preset:${DBState.db.botPresetsId}:customPromptTemplateToggle`} />
     <span class="text-textcolor mt-4">{language.defaultVariables} <Help key='defaultVariables' /></span>
-    <CodeMirrorEditor bind:value={DBState.db.templateDefaultVariables} class="my-2 h-[120px]" />
+    <CodeMirrorEditor bind:value={DBState.db.templateDefaultVariables} class="my-2 h-[120px]" spaceKey={`preset:${DBState.db.botPresetsId}:templateDefaultVariables`} />
     <span class="text-textcolor mt-4">{language.predictedOutput}</span>
-    <CodeMirrorEditor bind:value={DBState.db.OAIPrediction} class="my-2 h-[120px]" />
+    <CodeMirrorEditor bind:value={DBState.db.OAIPrediction} class="my-2 h-[120px]" spaceKey={`preset:${DBState.db.botPresetsId}:OAIPrediction`} />
     <span class="text-textcolor mt-4">{language.groupInnerFormat} <Help key='groupInnerFormat' /></span>
-    <CodeMirrorEditor placeholder={`<{{char}}'s Message>\n{{slot}}\n</{{char}}'s Message>`} bind:value={DBState.db.groupTemplate} class="my-2 h-[120px]" />
+    <CodeMirrorEditor placeholder={`<{{char}}'s Message>\n{{slot}}\n</{{char}}'s Message>`} bind:value={DBState.db.groupTemplate} class="my-2 h-[120px]" spaceKey={`preset:${DBState.db.botPresetsId}:groupTemplate`} />
     <span class="text-textcolor mt-4">{language.systemContentReplacement} <Help key="systemContentReplacement"/></span>
-    <CodeMirrorEditor bind:value={DBState.db.systemContentReplacement} class="my-2 h-[120px]" />
+    <CodeMirrorEditor bind:value={DBState.db.systemContentReplacement} class="my-2 h-[120px]" spaceKey={`preset:${DBState.db.botPresetsId}:systemContentReplacement`} />
     <span class="text-textcolor mt-4">{language.systemRoleReplacement} <Help key="systemRoleReplacement"/></span>
     <SelectInput bind:value={DBState.db.systemRoleReplacement}>
         <OptionInput value="user">User</OptionInput>
@@ -213,7 +213,7 @@
     </SelectInput>
     {#if DBState.db.jsonSchemaEnabled}
         <span class="text-textcolor mt-4">{language.jsonSchema} <Help key='jsonSchema' /></span>
-        <CodeMirrorEditor bind:value={DBState.db.jsonSchema} class="my-2 h-[150px]" />
+        <CodeMirrorEditor bind:value={DBState.db.jsonSchema} class="my-2 h-[150px]" spaceKey={`preset:${DBState.db.botPresetsId}:jsonSchema`} />
         <span class="text-textcolor mt-4">{language.extractJson} <Help key='extractJson' /></span>
         <TextInput bind:value={DBState.db.extractJson}/>
     {/if}

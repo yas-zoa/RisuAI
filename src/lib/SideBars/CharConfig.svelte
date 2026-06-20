@@ -317,10 +317,10 @@
     {#if DBState.db.characters[$selectedCharID].type !== 'group' && licensed !== 'private'}
         <TextInput size="xl" marginBottom placeholder="Character Name" bind:value={DBState.db.characters[$selectedCharID].name} />
         <span class="text-textcolor">{language.description} <Help key="charDesc"/></span>
-        <CodeMirrorEditor bind:value={(DBState.db.characters[$selectedCharID] as character).desc} class="my-2" />
+        <CodeMirrorEditor bind:value={(DBState.db.characters[$selectedCharID] as character).desc} class="my-2" spaceKey={`char:${$selectedCharID}:desc`} />
         <span class="text-textcolor2 mb-6 text-sm">{tokens.desc} {language.tokens}</span>
         <span class="text-textcolor">{language.firstMessage} <Help key="charFirstMessage"/></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].firstMessage} class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].firstMessage} class="my-2" spaceKey={`char:${$selectedCharID}:firstMessage`} />
         <span class="text-textcolor2 mb-6 text-sm">{tokens.firstMsg} {language.tokens}</span>
 
     {:else if licensed !== 'private' && DBState.db.characters[$selectedCharID].type === 'group'}
@@ -733,7 +733,7 @@
         {/if}
 
         <span class="text-textcolor mt-2">{language.backgroundHTML} <Help key="backgroundHTML" /></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].backgroundHTML} lang="html" class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].backgroundHTML} lang="html" class="my-2" spaceKey={`char:${$selectedCharID}:backgroundHTML`} />
 
         <span class="text-textcolor mt-4">{language.regexScript} <Help key="regexScript"/></span>
         <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} />
@@ -1114,7 +1114,7 @@
         </div>
 
         <span class="text-textcolor">{language.exampleMessage} <Help key="exampleMessage"/></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].exampleMessage} class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].exampleMessage} class="my-2" spaceKey={`char:${$selectedCharID}:exampleMessage`} />
 
         <span class="text-textcolor">{language.creatorNotes} <Help key="creatorQuotes"/></span>
         <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} className="my-2" onInput={() => {
@@ -1122,21 +1122,21 @@
         }}></MultiLangInput>
 
         <span class="text-textcolor">{language.systemPrompt} <Help key="systemPrompt"/></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].systemPrompt} class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].systemPrompt} class="my-2" spaceKey={`char:${$selectedCharID}:systemPrompt`} />
 
         <span class="text-textcolor">{language.replaceGlobalNote} <Help key="replaceGlobalNote"/></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote} class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote} class="my-2" spaceKey={`char:${$selectedCharID}:replaceGlobalNote`} />
 
         <span class="text-textcolor mt-2">{language.additionalText} <Help key="additionalText" /></span>
-        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].additionalText} class="my-2" />
+        <CodeMirrorEditor bind:value={DBState.db.characters[$selectedCharID].additionalText} class="my-2" spaceKey={`char:${$selectedCharID}:additionalText`} />
 
         {#if DBState.db.showUnrecommended || DBState.db.characters[$selectedCharID].personality.length > 3}
             <span class="text-textcolor">{language.personality} <Help key="personality" unrecommended/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></TextAreaInput>
+            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality} spaceKey={`char:${$selectedCharID}:personality`}></TextAreaInput>
         {/if}
         {#if DBState.db.showUnrecommended || DBState.db.characters[$selectedCharID].scenario.length > 3}
             <span class="text-textcolor">{language.scenario} <Help key="scenario" unrecommended/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></TextAreaInput>
+            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario} spaceKey={`char:${$selectedCharID}:scenario`}></TextAreaInput>
         {/if}
 
         <span class="text-textcolor mt-2">{language.defaultVariables} <Help key="defaultVariables" /></span>

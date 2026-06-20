@@ -678,7 +678,7 @@
     </Arcodion>
 
     <Arcodion styled name={language.moduleIntergration} help="moduleIntergration">
-        <TextAreaInput bind:value={DBState.db.moduleIntergration} fullwidth height={"32"} autocomplete="off"/>
+        <TextAreaInput bind:value={DBState.db.moduleIntergration} fullwidth height={"32"} autocomplete="off" spaceKey={`preset:${DBState.db.botPresetsId}:moduleIntergration`}/>
     </Arcodion>
 
     <Arcodion styled name={language.tools}>
@@ -736,13 +736,13 @@
 {#if submenu === 2 || submenu === -1}
     {#if !DBState.db.promptTemplate}
         <span class="text-textcolor">{language.mainPrompt} <Help key="mainprompt"/></span>
-        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.mainPrompt}></TextAreaInput>
+        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.mainPrompt} spaceKey={`preset:${DBState.db.botPresetsId}:mainPrompt`}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.mainPrompt} {language.tokens}</span>
         <span class="text-textcolor">{language.jailbreakPrompt} <Help key="jailbreak"/></span>
-        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.jailbreak}></TextAreaInput>
+        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.jailbreak} spaceKey={`preset:${DBState.db.botPresetsId}:jailbreak`}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.jailbreak} {language.tokens}</span>
         <span class="text-textcolor">{language.globalNote} <Help key="globalNote"/></span>
-        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.globalNote}></TextAreaInput>
+        <TextAreaInput fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.globalNote} spaceKey={`preset:${DBState.db.botPresetsId}:globalNote`}></TextAreaInput>
         <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.globalNote} {language.tokens}</span>  
         <span class="text-textcolor mb-2 mt-4">{language.formatingOrder} <Help key="formatOrder"/></span>
         <DropList bind:list={DBState.db.formatingOrder} />

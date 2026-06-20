@@ -842,7 +842,7 @@
                 </SelectInput>
                 <span class="text-textcolor">{language.summarizationPrompt} <Help key="summarizationPrompt"/></span>
                 <div class="mb-4">
-                    <TextAreaInput size="sm" placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder} bind:value={settings.summarizationPrompt} />
+                    <TextAreaInput size="sm" placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder} bind:value={settings.summarizationPrompt} spaceKey={`hypa:${DBState.db.hypaV3PresetId}:summarizationPrompt`} />
                 </div>
                 {#await getMaxMemoryRatio() then maxMemoryRatio}
                 <span class="text-textcolor">{language.hypaV3Settings.maxMemoryTokensRatioLabel}</span>

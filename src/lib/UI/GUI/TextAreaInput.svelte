@@ -34,8 +34,15 @@
     class:mt-4={margin === 'top'}
     class:mt-2={margin === 'both'}
     bind:this={highlightDom}
+    onfocusin={(e) => {
+        focused = true
+        // Gate the mobile canvas button by the SAME scope rule as the popup
+        // itself, so it never appears on chat fields (or fields too short).
+        canvasEligible = shouldOpenCanvasPopupTarget(e.target as HTMLElement, 60)
+    }}
     onfocusout={() => {
         hideAutoComplete()
+        focused = false
     }}
 >
     {#if !highlight || $disableHighlight}
@@ -95,6 +102,19 @@
         translate="no"
     >{value ?? ''}</div>
 {/if}
+    {#if isMobile && focused && canvasEligible}
+        <!-- Mobile-only explicit entry to the canvas editor.  Replaces the
+             long-press (contextmenu) trigger, which collides with native
+             text selection/copy on touch.  onpointerdown preventDefault keeps
+             the field focused so the button doesn't vanish before the tap. -->
+        <button
+            type="button"
+            class="absolute top-1 right-1 z-[60] w-7 h-7 flex items-center justify-center rounded bg-bgcolor/80 border border-darkborderc text-textcolor2"
+            aria-label="확대 편집"
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={() => openCanvasFromButton()}
+        ><MaximizeIcon size={15} /></button>
+    {/if}
     <div class="hidden absolute z-100 bg-bgcolor border border-darkborderc p-2 flex-col" bind:this={autoCompleteDom}>
         {#each autocompleteContents as content, i}
             <button class="w-full text-left py-1 px-2 bg-bgcolor" class:text-blue-500={selectingAutoComplete === i} onclick={() => {
@@ -108,6 +128,7 @@
     value={value ?? ''}
     title={canvasTitle}
     lang={highlight ? 'cbs' : 'markdown'}
+    spaceKey={spaceKey}
     onClose={() => {
         canvasOpen = false
     }}
@@ -119,6 +140,7 @@
 />
 <script lang="ts">
     import CanvasEditorModal from './CanvasEditorModal.svelte'
+    import { MaximizeIcon } from 'lucide-svelte'
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { shouldOpenCanvasPopupTarget } from 'src/ts/gui/canvasPopup'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
@@ -141,6 +163,8 @@
         optimaizedInput?: boolean;
         highlight?: boolean;
         onchange?: () => void;
+        /** Stable per-space id forwarded to the canvas popup (highlights etc.). */
+        spaceKey?: string;
     }
 
     let {
@@ -157,7 +181,8 @@
         className = '',
         optimaizedInput = true,
         highlight = false,
-        onchange = () => {}
+        onchange = () => {},
+        spaceKey = undefined
     }: Props = $props();
     let selectingAutoComplete = $state(0)
     let highlightId = highlight ? getNewHighlightId() : 0
@@ -169,8 +194,22 @@
     let inputDom: HTMLDivElement = $state()
     let canvasOpen = $state(false)
     let canvasTitle = $state('텍스트 편집')
+    let focused = $state(false)
+    let canvasEligible = $state(false)
+
+    // Mobile-only explicit canvas entry (the long-press trigger is disabled on
+    // touch — see openCanvasEditor).  Button visibility is already gated to
+    // eligible fields via canvasEligible, so no re-check is needed here.
+    const openCanvasFromButton = () => {
+        canvasTitle = placeholder || '텍스트 편집'
+        canvasOpen = true
+    }
 
     const openCanvasEditor = (e: MouseEvent, target: HTMLElement) => {
+        // On touch devices, contextmenu fires on long-press — the same gesture
+        // used to select text for copy.  Don't hijack it: let native
+        // selection/copy proceed.  (Canvas stays available on desktop right-click.)
+        if (isMobile) return
         if (!shouldOpenCanvasPopupTarget(target, 60)) return
         e.preventDefault()
         e.stopPropagation()

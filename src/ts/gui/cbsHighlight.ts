@@ -330,24 +330,53 @@ function parseMarkdown(text: string): MarkdownMatch[] {
  *   with mobile CPUs, the single-plugin path fits comfortably inside a 16 ms
  *   frame; the four-plugin path did not.
  *
- * Why rebuild on every viewportChanged and not just docChanged:
- *   CM6's viewport is already slightly larger than visibleRanges, so a rebuild
- *   on viewport shift decorates newly scrolled-in lines.  Per-token caching
- *   with viewport-coverage checks (the earlier approach) saves parse work but
- *   adds per-update conditional overhead that exceeds the savings for our doc
- *   sizes.  Keep it simple.
+ * Critical-path decoupling (typing AND scrolling both stay smooth):
+ *   - viewportChanged does NOT rebuild — decorations already cover the whole
+ *     document, so scrolling renders the visible subset with zero reparse.
+ *     (Viewport-scoped parsing was tried and reverted: momentum scroll fires
+ *     viewportChanged continuously and reparsing per frame stutters.)
+ *   - docChanged remaps existing decorations through the edit immediately
+ *     (O(edit size)) so colours stay aligned, then debounces the authoritative
+ *     full reparse off the keystroke path so large-doc typing stays responsive.
  */
 export const cbsHighlighter = ViewPlugin.fromClass(
     class {
         decorations: DecorationSet
+        // Debounce timer for the off-critical-path full reparse.
+        _rebuildTimer: ReturnType<typeof setTimeout> | null = null
 
         constructor(view: EditorView) {
+            // Initial build is synchronous so the first paint is highlighted.
             this.decorations = this.buildDecorations(view)
         }
 
         update(update: ViewUpdate) {
-            if (update.docChanged || update.viewportChanged) {
-                this.decorations = this.buildDecorations(update.view)
+            // viewportChanged intentionally ignored — see plugin doc comment.
+            if (update.docChanged) {
+                // Keep current decorations aligned to moved text right away
+                // (cheap); defer the heavy full reparse.
+                this.decorations = this.decorations.map(update.changes)
+                const view = update.view
+                if (this._rebuildTimer !== null) clearTimeout(this._rebuildTimer)
+                this._rebuildTimer = setTimeout(() => {
+                    this._rebuildTimer = null
+                    // The view may have been torn down between the keystroke and
+                    // this deferred fire (modal closed, component unmounted).
+                    // Dispatching into a detached view throws; guard on the DOM
+                    // connection before touching it.
+                    if (!view.dom.isConnected) return
+                    this.decorations = this.buildDecorations(view)
+                    // Outside CM's update cycle (setTimeout): an empty dispatch
+                    // triggers an update so CM re-reads `decorations`.
+                    view.dispatch({})
+                }, 120)
+            }
+        }
+
+        destroy() {
+            if (this._rebuildTimer !== null) {
+                clearTimeout(this._rebuildTimer)
+                this._rebuildTimer = null
             }
         }
 
