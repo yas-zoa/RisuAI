@@ -3,7 +3,10 @@ name: risuai
 services:
   risuai:
     container_name: risuai
-    image: ghcr.io/kwaroran/risuai:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/yas-zoa/risuai:latest
     restart: always
     ports:
       - 6001:6001

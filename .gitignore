@@ -54,3 +54,6 @@ dist.zip
 
 # Due to Cargo.lock makes the project build fail, we ignore it
 Cargo.lock
+
+# Leftover nested clone (old 166.3.3 checkout) — not part of this fork
+/RisuAI/
