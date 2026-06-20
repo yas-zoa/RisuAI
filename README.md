@@ -39,7 +39,7 @@ RisuAI, or Risu for short, is a cross platform AI chatting software / web applic
 
 You can get detailed information on https://github.com/kwaroran/RisuAI/wiki (Work in Progress)
 
-## 이 포크의 추가 기능 (yas-zoa)
+## 이 포크의 추가 기능
 
 원본 RisuAI에 더해 이 포크에서 사용할 수 있는 기능입니다.
 
@@ -58,18 +58,19 @@ You can get detailed information on https://github.com/kwaroran/RisuAI/wiki (Wor
 
 - CBS 키워드 (제어문·매크로) 컬러링
 - XML 태그, 인라인 CSS, Markdown 강조
-- 입력 지연을 줄이는 debounce 처리
+- 타이핑·스크롤 지연을 줄이기 위해 하이라이트 계산을 입력/스크롤 경로에서 분리 (스크롤 시 재파싱 없음, 타이핑 중 비차단 — 멈춘 뒤 따라옴)
 
 ### 캔버스 팝업 에디터
 
-긴 텍스트를 편집할 때 데스크톱에서는 우클릭 컨텍스트메뉴, 모바일에서는 롱프레스로 전체 화면 팝업 에디터를 열 수 있습니다.
+긴 텍스트를 편집할 때 데스크톱에서는 우클릭 컨텍스트메뉴, 모바일에서는 입력창 포커스 시 나타나는 확대(⤢) 버튼으로 전체 화면 팝업 에디터를 열 수 있습니다. (모바일 롱프레스는 네이티브 텍스트 선택/복사용으로 보존됩니다)
 
 - 팝업을 닫을 때 원본 에디터의 커서 위치 보존
 - CodeMirror 기본 검색 패널 (찾기·다음·이전)
-- 사용자 지정 하이라이트: 텍스트 구간을 직접 표시하고 다음 하이라이트로 이동하거나 전부 해제 가능 (하이라이트는 문서별로 저장)
+- 되돌리기·다시 실행·전체 선택·붙여넣기 버튼 (CodeMirror 명령 직결)
+- 자주 쓰는 문구를 메모로 저장해 본문에 삽입 (브라우저 로컬 저장)
 - 본문 전체 복사 버튼 + 결과 토스트 알림
 - ESC 처리, aria-label 등 키보드·스크린리더 접근성
-- 팝업 전용 [Catppuccin Mocha](https://github.com/catppuccin/website/blob/main/LICENSE) 거터 테마
+- 팝업 전용 Catppuccin Mocha 거터 테마
 
 ### 사이드바 토글 타입 확장
 
@@ -78,22 +79,70 @@ You can get detailed information on https://github.com/kwaroran/RisuAI/wiki (Wor
 - `textarea`: 여러 줄 텍스트를 입력받는 토글 (기존 `text`의 멀티라인 버전)
 - `caption`: 읽기 전용 설명 캡션. 토글 목록에 부연 설명 줄을 넣을 때 사용
 
-## Discord
-
-- https://discord.gg/JzP8tB9ZK8
-
 ## Installation
 
 - [RisuAI Website](https://risuai.net) (Recommended)
-- [Github Releases](https://github.com/kwaroran/RisuAI/releases)
+- [Github Releases](https://github.com/yas-zoa/RisuAI/releases)
 
 ### Docker Installation
 
-You can also run RisuAI using Docker. This method is particularly useful for web hosting.
+이 포크의 `docker-compose.yml`은 두 가지를 모두 지원합니다 — **미리 빌드된 이미지를 받기**(빠름)와 **소스에서 직접 빌드**(소스 수정 시). 먼저 저장소를 클론하세요:
 
-1. Run the Docker container:
-   ```
-   curl -L https://raw.githubusercontent.com/kwaroran/RisuAI/refs/heads/main/docker-compose.yml | docker compose -f - up -d
-   ```
+```
+git clone https://github.com/yas-zoa/RisuAI
+cd RisuAI
+```
 
-2. Access RisuAI at `http://localhost:6001` in your web browser.
+**방법 A — 미리 빌드된 이미지 받기 (권장, 빠름)**
+
+GitHub Actions가 `v*` 태그 push 시 `ghcr.io/yas-zoa/risuai:latest`(amd64+arm64)를 빌드해 둡니다. 빌드 없이 받아서 실행:
+```
+docker compose pull && docker compose up -d
+```
+> 이미지가 비공개면 먼저 `docker login ghcr.io` (GitHub PAT, `read:packages`)가 필요합니다. 공개로 전환했다면 인증 없이 받을 수 있습니다.
+
+**방법 B — 소스에서 직접 빌드**
+
+로컬 소스를 그대로 빌드해 실행 (코드를 수정했을 때):
+```
+docker compose up -d --build
+```
+
+그다음 웹 브라우저에서 `http://localhost:6001` 접속.
+
+> 소스를 수정한 뒤에는 방법 B(`--build`)로 다시 빌드하세요. 그 외에는 방법 A로 최신 이미지를 받으면 됩니다.
+
+### Termux (Android) 설치
+
+안드로이드에서는 Docker를 쓰기 어려우니 Node로 직접 서버를 띄웁니다. 두 가지 방법이 있어요.
+
+**방법 A — 미리 빌드된 서버 받기 (권장, 빌드 불필요)**
+
+릴리스에 첨부된 `risuai-server-termux-*.tar.gz`에는 빌드 결과물(`dist/`)과 서버가 들어 있어, 무거운 빌드 없이 의존성 5개만 받으면 바로 실행됩니다.
+
+```bash
+pkg update && pkg install -y nodejs-lts
+# 릴리스에서 tar.gz 다운로드 후
+tar xzf risuai-server-termux-*.tar.gz && cd risuai-server
+npm install express fast-json-patch node-html-parser fflate msgpackr
+node server/node/server.cjs
+```
+
+그다음 브라우저에서 `http://localhost:6001` 접속. (인증서가 없으면 HTTP로 자동 동작합니다)
+
+**방법 B — 소스에서 직접 빌드 (수정하려는 경우)**
+
+빌드는 메모리를 많이 써서 RAM 여유가 있는 기기에서 권장합니다.
+
+```bash
+pkg update && pkg install -y nodejs-lts git
+git clone https://github.com/yas-zoa/RisuAI && cd RisuAI
+corepack enable && corepack install --global pnpm@10.28.0
+pnpm install
+# Termux에서 pnpm 실행 스크립트가 깨지면 vite를 node로 직접 호출:
+NODE_OPTIONS="--max-old-space-size=6144" node node_modules/vite/bin/vite.js build
+node server/node/server.cjs
+```
+
+> 빌드 중 메모리 부족(OOM)이 나면 `--max-old-space-size` 값을 기기 RAM에 맞춰 조정하세요.
+> 포트는 `PORT` 환경변수로 바꿀 수 있습니다 (기본 6001).
